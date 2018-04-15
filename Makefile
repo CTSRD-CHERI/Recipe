@@ -31,11 +31,12 @@ BSC = bsc
 
 all: $(patsubst Example%.bsv, example%, $(wildcard Example*.bsv))
 
-example%: Example%.bsv
+example%: Example%.bsv Recipe.bsv
 	mkdir -p bdir-$@ simdir-$@
-	$(BSC) -bdir bdir-$@ -simdir simdir-$@ -u -sim -g top $^
+	$(BSC) -bdir bdir-$@ -simdir simdir-$@ -u -sim -g top $<
 	$(BSC) -bdir bdir-$@ -simdir simdir-$@ -sim -e top -o $@
 
 .PHONY: clean
 clean:
 	rm -fr *example*
+	ls Recipe.* | grep -v Recipe.bsv | xargs rm -f
