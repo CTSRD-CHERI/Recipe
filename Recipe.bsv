@@ -44,6 +44,7 @@ export rFastSeq;
 export rSeq;
 export rPar;
 export rIfElse;
+export rWhen;
 export rWhile;
 export rBlock;
 export RecipeBlock;
@@ -102,6 +103,7 @@ function Recipe rPar(List#(Recipe) rs) = Par(rs);
 function Recipe rSeq(List#(Recipe) rs) = Seq(rs);
 function Recipe rFastSeq(List#(Recipe) rs) = FastSeq(rs);
 function Recipe rIfElse(Bool c, Recipe r0, Recipe r1) = IfElse(tuple3(c, r0, r1));
+function Recipe rWhen(Bool c, Recipe r) = IfElse(tuple3(c, r, Act(noAction)));
 function Recipe rWhile(Bool c, Recipe r) = While(tuple2(c, r));
 
 /* TODO proprocessor macros to apply rBlock implicitly
