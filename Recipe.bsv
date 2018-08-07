@@ -44,7 +44,7 @@ export rActV;
 export rFastSeq;
 export rSeq;
 export rPar;
-export rAllMatch;
+export rAllGuard;
 export rIfElse;
 export rWhen;
 export rWhile;
@@ -62,7 +62,7 @@ typedef union tagged {
   Action Act; // Basic Action recipe
   ActionValue#(Bool) ActV; // ActionValue recipe
   List#(Recipe) Par; // All recipes happen in parallel
-  Tuple2#(List#(Bool), List#(Recipe)) AllMatch; // All recipes with predicate matching happen in parallel
+  Tuple2#(List#(Bool), List#(Recipe)) AllGuard; // All recipes with predicate matching happen in parallel
   List#(Recipe) Seq; // All recipes happen in order with one cycle latency (separated by mkFIFO1)
   // XXX FastSeq:
   // All recipes happen in order with no latency (separated by mkBypassFIFO).
@@ -103,7 +103,7 @@ endfunction
 function Recipe rAct(Action a) = Act(a);
 function Recipe rActV(ActionValue#(Bool) a) = ActV(a);
 function Recipe rPar(List#(Recipe) rs) = Par(rs);
-function Recipe rAllMatch(List#(Bool) gs, List#(Recipe) rs) = AllMatch(tuple2(gs, rs));
+function Recipe rAllGuard(List#(Bool) gs, List#(Recipe) rs) = AllGuard(tuple2(gs, rs));
 function Recipe rSeq(List#(Recipe) rs) = Seq(rs);
 function Recipe rFastSeq(List#(Recipe) rs) = FastSeq(rs);
 function Recipe rIfElse(Bool c, Recipe r0, Recipe r1) = IfElse(tuple3(c, r0, r1));
@@ -262,13 +262,13 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
       endrule endrules;
       return rJoin(forkRule, rJoin(branchRules, joinRule));
     end
-    // AllMatch recipe construct
+    // AllGuard recipe construct
     ////////////////////////////////////////////////////////////////////////////
-    tagged AllMatch {.gs, .rs}: begin
+    tagged AllGuard {.gs, .rs}: begin
       // check for valid lengths
       Integer rlen = length(rs);
       Integer glen = length(gs);
-      if (rlen != glen) error(sprintf("AllMatch recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
+      if (rlen != glen) error(sprintf("AllGuard recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
       // local resources
       List#(FlowFF) inFFs <- replicateM(rlen, mkBypassFIFO);
       List#(Array#(Reg#(Bool))) guards <- replicateM(rlen, mkCReg(2, False));
@@ -288,11 +288,11 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
       endrule endrules;
       // get done signal for each branche
       function Rules buildJoinRules(Reg#(Bool) done[], Reg#(Bool) guard[], FIFO#(x) ff) = rules
-        rule joinActiveAllMatch(!done[1] && guard[1]);
+        rule joinActiveAllGuard(!done[1] && guard[1]);
           ff.deq();
           done[1] <= True;
         endrule
-        rule joinInactiveAllMatch(!done[1] && !guard[1]);
+        rule joinInactiveAllGuard(!done[1] && !guard[1]);
           done[1] <= True;
         endrule
       endrules;

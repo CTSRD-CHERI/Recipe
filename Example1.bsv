@@ -257,10 +257,10 @@ module top ();
     $display("%0t -- E", $time),
     rAct(action cnt <= cnt + 1; endaction)
   )));
-  Recipe r19 = rFastSeq(rBlock(rAllMatch(
+  Recipe r19 = rWhile((cnt < 10), rFastSeq(rBlock(rAllGuard(
   // list of 3 bools
-  cons(True,
   cons(False,
+  cons(True,
   cons(True,
   Nil))),
   // list of 3 recipes
@@ -273,8 +273,8 @@ module top ();
     )),
   Nil)))
   ),
-  action $display("%0t -- all is done", $time); endaction
-  ));
+  action cnt <= cnt + 1; $display("%0t -- iteration %0d done", $time, cnt); endaction
+  )));
 
   // Compile one of the recipes
   //let m <- compile(r0);
