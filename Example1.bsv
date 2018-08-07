@@ -275,6 +275,24 @@ module top ();
   ),
   action cnt <= cnt + 1; $display("%0t -- iteration %0d done", $time, cnt); endaction
   )));
+  Recipe r20 = rWhile((cnt < 10), rFastSeq(rBlock(rOneMatch(
+  // list of 3 bools
+  cons(False,
+  cons(False,
+  cons(False,
+  Nil))),
+  // list of 3 recipes
+  cons(rAct(action $display("%0t -- A", $time); endaction),
+  cons(rAct(action $display("%0t -- B", $time); endaction),
+  cons(rSeq(rBlock(
+    action $display("%0t -- C (1)", $time); endaction,
+    action $display("%0t -- C (2)", $time); endaction,
+    action $display("%0t -- C (3)", $time); endaction
+    )),
+  Nil))),
+  rAct(action $display("%0t -- No recipe matched...", $time); endaction)),
+  action cnt <= cnt + 1; $display("%0t -- iteration %0d done", $time, cnt); endaction
+  )));
 
   // Compile one of the recipes
   //let m <- compile(r0);
@@ -296,7 +314,8 @@ module top ();
   //let m <- compile(r16);
   //let m <- compile(r17);
   //let m <- compile(r18);
-  let m <- compile(r19);
+  //let m <- compile(r19);
+  let m <- compile(r20);
 
   // Start runing the recipe
 	rule run; m.start(); endrule

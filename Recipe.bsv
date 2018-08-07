@@ -45,6 +45,7 @@ export rFastSeq;
 export rSeq;
 export rPar;
 export rAllGuard;
+export rOneMatch;
 export rIfElse;
 export rWhen;
 export rWhile;
@@ -63,6 +64,7 @@ typedef union tagged {
   ActionValue#(Bool) ActV; // ActionValue recipe
   List#(Recipe) Par; // All recipes happen in parallel
   Tuple2#(List#(Bool), List#(Recipe)) AllGuard; // All recipes with predicate matching happen in parallel
+  Tuple3#(List#(Bool), List#(Recipe), Recipe) OneMatch; // First recipe with that matches happens, otherwise fall-through recipe
   List#(Recipe) Seq; // All recipes happen in order with one cycle latency (separated by mkFIFO1)
   // XXX FastSeq:
   // All recipes happen in order with no latency (separated by mkBypassFIFO).
@@ -104,6 +106,7 @@ function Recipe rAct(Action a) = Act(a);
 function Recipe rActV(ActionValue#(Bool) a) = ActV(a);
 function Recipe rPar(List#(Recipe) rs) = Par(rs);
 function Recipe rAllGuard(List#(Bool) gs, List#(Recipe) rs) = AllGuard(tuple2(gs, rs));
+function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = OneMatch(tuple3(gs, rs, r));
 function Recipe rSeq(List#(Recipe) rs) = Seq(rs);
 function Recipe rFastSeq(List#(Recipe) rs) = FastSeq(rs);
 function Recipe rIfElse(Bool c, Recipe r0, Recipe r1) = IfElse(tuple3(c, r0, r1));
@@ -286,7 +289,7 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         function Action doEnq(Bool g, FIFO#(x) ff) = action if (g) ff.enq(?); endaction;
         joinActions(zipWith(doEnq, gs, inFFs));
       endrule endrules;
-      // get done signal for each branche
+      // get done signal for each branch
       function Rules buildJoinRules(Reg#(Bool) done[], Reg#(Bool) guard[], FIFO#(x) ff) = rules
         rule joinActiveAllGuard(!done[1] && guard[1]);
           ff.deq();
@@ -305,6 +308,46 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         joinActions(map(doResetDone(2), dones));
       endrule endrules;
       return rJoin(forkRule, rJoin(branchRules, rJoin(joinRules, finalJoinRules)));
+    end
+    // OneMatch recipe construct
+    ////////////////////////////////////////////////////////////////////////////
+    tagged OneMatch {.gs, .rs, .r}: begin
+      // check for valid lengths
+      Integer rlen = length(rs);
+      Integer glen = length(gs);
+      if (rlen != glen) error(sprintf("OneMatch recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
+      // local resources
+      List#(FlowFF) inFFs <- replicateM(rlen, mkBypassFIFO);
+      FlowFF dfltFF <- mkBypassFIFO;
+      PulseWire done <- mkPulseWireOR;
+      List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
+      Tuple2#(FlowFF, Rules) dflt <- compileWrapOut(mkBypassFIFO, r, dfltFF);
+      // gather rules for each branch
+      Rules allbranchRules = fold(rJoinMutuallyExclusive, map(tpl_2, branches));
+      Rules dfltBranchRules = tpl_2(dflt);
+      Rules branchRules = rJoinMutuallyExclusive(allbranchRules, dfltBranchRules);
+      // trigger first matching branch, or default branch otherwise
+      Rules triggerRules = rules rule triggerOneMatch;
+        goFF.deq();
+        case(find(tpl_1, zip(gs, inFFs))) matches
+          tagged Valid {.guard, .ff}: ff.enq(?);
+          tagged Invalid: dfltFF.enq(?);
+        endcase
+      endrule endrules;
+      // gather done signal for each branch
+      function Rules gatherRule(FIFO#(x) ff) = rules
+        rule gatherOneMatch; ff.deq(); done.send(); endrule
+      endrules;
+      Rules allGatherRules = fold(rJoinMutuallyExclusive, map(gatherRule, map(tpl_1, branches)));
+      Rules dfltGatherRules = rules
+        rule gatherDfltOneMatch; tpl_1(dflt).deq(); done.send(); endrule
+      endrules;
+      Rules gatherRules = rJoinMutuallyExclusive(allGatherRules, dfltGatherRules);
+      // signal end on done
+      Rules finalRules = rules
+        rule finalOneMatch (done); doneFF.enq(?); endrule
+      endrules;
+      return rJoin(triggerRules, rJoin(branchRules, rJoin(gatherRules, finalRules)));
     end
     // Seq recipe construct
     ////////////////////////////////////////////////////////////////////////////
