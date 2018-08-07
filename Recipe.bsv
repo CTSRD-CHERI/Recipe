@@ -205,31 +205,6 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
     Rules innerRules <- innerCompile(r, inFF, outFF);
     return tuple2(outFF, innerRules);
   endmodule
-  // sequence module helpers
-  //////////////////////////////////////////////////////////////////////////////
-  module emptySeq (Rules);
-    return rules
-      rule emptySeq;
-        goFF.deq();
-        doneFF.enq(?);
-      endrule
-    endrules;
-  endmodule
-  module [Module] nonEmptySeq#(Module#(FlowFF) mkFF, List#(Recipe) rs) (Rules);
-    FlowFF lastFF = goFF;
-    Integer seqLength = length(rs);
-    List#(Recipe) rList = rs;
-    // go through the list and leave the last element in there
-    Rules seqRules = emptyRules;
-    for (Integer i = 0; i < seqLength - 1; i = i + 1) begin
-      Tuple2#(FlowFF, Rules) step <- compileWrapOut(mkFF, head(rList), lastFF);
-      lastFF = tpl_1(step);
-      seqRules = rJoin(seqRules, tpl_2(step));
-      rList = tail(rList);
-    end
-    Rules lastStep <- innerCompile(head(rList), lastFF, doneFF);
-    return rJoin(seqRules, lastStep);
-  endmodule
   // core compiler
   //////////////////////////////////////////////////////////////////////////////
   case (r) matches
@@ -285,9 +260,9 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
       endrule endrules;
       // join rules //
       ////////////////
-      ifRules = rJoin(ifRules, afterIfRules);
-      elseRules = rJoin(elseRules, afterElseRules);
-      return rJoin(beforeRules, rJoin(ifRules, elseRules));
+      ifRules = rJoinExecutionOrder(ifRules, afterIfRules);
+      elseRules = rJoinExecutionOrder(elseRules, afterElseRules);
+      return rJoinExecutionOrder(beforeRules, rJoinMutuallyExclusive(ifRules, elseRules));
     end
     // While loop recipe construct
     ////////////////////////////////////////////////////////////////////////////
@@ -333,8 +308,24 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
     end
     // Seq recipe construct
     ////////////////////////////////////////////////////////////////////////////
-    tagged RSeq {.mkFF, Nil}: begin Rules x <- emptySeq; return x; end
-    tagged RSeq {.mkFF, .rs}: begin Rules x <- nonEmptySeq(mkFF, rs); return x; end
+    tagged RSeq {.mkFF, Nil}: return rules
+      rule emptySeq; goFF.deq(); doneFF.enq(?); endrule
+    endrules;
+    tagged RSeq {.mkFF, .rs}: begin
+      FlowFF lastFF = goFF;
+      Integer seqLength = length(rs);
+      List#(Recipe) rList = rs;
+      // go through the list and leave the last element in there
+      Rules seqRules = emptyRules;
+      for (Integer i = 0; i < seqLength - 1; i = i + 1) begin
+        Tuple2#(FlowFF, Rules) step <- compileWrapOut(mkFF, head(rList), lastFF);
+        lastFF = tpl_1(step);
+        seqRules = rJoinExecutionOrder(seqRules, tpl_2(step));
+        rList = tail(rList);
+      end
+      Rules lastStep <- innerCompile(head(rList), lastFF, doneFF);
+      return rJoinExecutionOrder(seqRules, lastStep);
+    end
     // Par recipe construct
     ////////////////////////////////////////////////////////////////////////////
     tagged RPar {.mkFF, .rs}: begin
@@ -352,7 +343,7 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         joinActions(map(doDeq, map(tpl_1, branches)));
         doneFF.enq(?);
       endrule endrules;
-      return rJoin(forkRule, rJoin(branchRules, joinRule));
+      return rJoinExecutionOrder(forkRule, rJoinExecutionOrder(branchRules, joinRule));
     end
     // OneMatch recipe construct
     ////////////////////////////////////////////////////////////////////////////
@@ -361,7 +352,7 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
       /////////////////////////////
       Integer rlen = length(rs);
       Integer glen = length(gs);
-      if (rlen != glen) error(sprintf("OneMatch recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
+      if (rlen != glen) error(sprintf("OneMatch recipe constructor: list of guards and of recipes must be the same length (given %0d guards and %0d recipes).", glen, rlen));
       // local resources //
       /////////////////////
       PulseWire done                         <- mkPulseWireOR;
@@ -400,9 +391,9 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         rule finalOneMatch (done); doneFF.enq(?); endrule
       endrules;
       // compose all rules and return
-      return rJoin(triggerRules, rJoin(branchRules, rJoin(gatherRules, finalRules)));
+      return rJoinExecutionOrder(triggerRules, rJoinExecutionOrder(branchRules, rJoinExecutionOrder(gatherRules, finalRules)));
     end
   endcase
 endmodule
 
-endpackage: Recipe
+endpackage
