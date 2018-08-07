@@ -46,6 +46,7 @@ export rSeq;
 export rPar;
 export rAllGuard;
 export rOneMatch;
+export rOneMatchDelay;
 export rIfElse;
 export rWhen;
 export rWhile;
@@ -60,22 +61,16 @@ export compileRules;
 typedef FIFO#(Bit#(0)) FlowFF;
 // Recipe data type
 typedef union tagged {
-  Action Act; // Basic Action recipe
-  ActionValue#(Bool) ActV; // ActionValue recipe
-  List#(Recipe) Par; // All recipes happen in parallel
-  Tuple3#(List#(Bool), List#(Recipe), Recipe) OneMatch; // First recipe with that matches happens, otherwise fall-through recipe
-  List#(Recipe) Seq; // All recipes happen in order with one cycle latency (separated by mkFIFO1)
-  // XXX FastSeq:
-  // All recipes happen in order with no latency (separated by mkBypassFIFO).
-  // Data dependencies can still create latency. Any module whose firing in an early rule depends
-  // on the firing of a later rule (typically mkPipeLineFIFO and the likes) will cause a scheduling
-  // error as the rules are separated by a mkBypassFIFO, leading to a cycle in the canfire/willfire signals.
-  List#(Recipe) FastSeq;
-  Tuple3#(Bool, Recipe, Recipe) IfElse; // First recipe happens for a True condition, second recipe otherwise
-  Tuple2#(Bool, Recipe) While; // Recipe happens as long as the condition is True
+  Action RAct;
+  ActionValue#(Bool) RActV;
+  Tuple4#(Module#(FlowFF), Bool, Recipe, Recipe) RIfElse;
+  Tuple3#(Module#(FlowFF), Bool, Recipe) RWhile;
+  Tuple2#(Module#(FlowFF), List#(Recipe)) RSeq;
+  Tuple2#(Module#(FlowFF), List#(Recipe)) RPar;
+  Tuple5#(Module#(FlowFF), List#(Bool), List#(Recipe), Module#(FlowFF), Recipe) ROneMatch;
 } Recipe;
 
-// Recipe block constructor (to wrap multiple recipes in a list, passed to Par/Seq/FastSeq)
+// Recipe block constructor (to wrap multiple recipes in a list, passed to RSeq, RPar etc..)
 typeclass RecipeBlock#(type a);
   function a mkRecipe(List#(Recipe) acc);
 endtypeclass
@@ -85,42 +80,54 @@ instance RecipeBlock#(List#(Recipe));
 endinstance
 
 instance RecipeBlock#(function a f(Action elem)) provisos (RecipeBlock#(a));
-  function mkRecipe(acc, elem) = mkRecipe(cons(Act(elem), acc));
+  function mkRecipe(acc, elem) = mkRecipe(cons(RAct(elem), acc));
 endinstance
 
 instance RecipeBlock#(function a f(ActionValue#(Bool) elem)) provisos (RecipeBlock#(a));
-  function mkRecipe(acc, elem) = mkRecipe(cons(ActV(elem), acc));
+  function mkRecipe(acc, elem) = mkRecipe(cons(RActV(elem), acc));
 endinstance
 
 instance RecipeBlock#(function a f(Recipe elem)) provisos (RecipeBlock#(a));
-  function mkRecipe(acc, elem) = mkRecipe(Cons(elem, acc));
+  function mkRecipe(acc, elem) = mkRecipe(cons(elem, acc));
 endinstance
 
 function a rBlock() provisos (RecipeBlock#(a));
   return mkRecipe(Nil);
 endfunction
 
-// Recipe constructor wrapper function
-function Recipe rAct(Action a) = Act(a);
-function Recipe rActV(ActionValue#(Bool) a) = ActV(a);
-function Recipe rPar(List#(Recipe) rs) = Par(rs);
+// Basic Action recipe
+function Recipe rAct(Action a) = RAct(a);
+// ActionValue recipe
+function Recipe rActV(ActionValue#(Bool) a) = RActV(a);
+// First recipe happens for a True condition, second recipe otherwise
+function Recipe rIfElse(Bool c, Recipe r0, Recipe r1) = RIfElse(tuple4(mkBypassFIFO, c, r0, r1));
+function Recipe rWhen(Bool c, Recipe r) = rIfElse(c, r, rAct(noAction));
+// Recipe happens as long as the condition is True
+function Recipe rWhile(Bool c, Recipe r) = RWhile(tuple3(mkBypassFIFO, c, r));
+// All recipes happen in order
+function Recipe rSeq(List#(Recipe) rs) = RSeq(tuple2(mkFIFO1, rs));
+// XXX FastSeq:
+// All recipes happen in order with no latency (separated by mkBypassFIFO).
+// Data dependencies can still create latency. Any module whose firing in an early rule depends
+// on the firing of a later rule (typically mkPipeLineFIFO and the likes) will cause a scheduling
+// error as the rules are separated by a mkBypassFIFO, leading to a cycle in the canfire/willfire signals.
+function Recipe rFastSeq(List#(Recipe) rs) = RSeq(tuple2(mkBypassFIFO, rs));
+// All recipes happen in parallel
+function Recipe rPar(List#(Recipe) rs) = RPar(tuple2(mkBypassFIFO, rs));
 // All recipes with predicate matching happen in parallel
 function Recipe rAllGuard(List#(Bool) gs, List#(Recipe) rs) = rPar(zipWith(rWhen, gs, rs));
-function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = OneMatch(tuple3(gs, rs, r));
-function Recipe rSeq(List#(Recipe) rs) = Seq(rs);
-function Recipe rFastSeq(List#(Recipe) rs) = FastSeq(rs);
-function Recipe rIfElse(Bool c, Recipe r0, Recipe r1) = IfElse(tuple3(c, r0, r1));
-function Recipe rWhen(Bool c, Recipe r) = IfElse(tuple3(c, r, Act(noAction)));
-function Recipe rWhile(Bool c, Recipe r) = While(tuple2(c, r));
+// First recipe with that matches happens, otherwise fall-through recipe
+function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatch(tuple5(mkBypassFIFO, gs, rs, mkBypassFIFO, r));
+function Recipe rOneMatchDelay(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatch(tuple5(mkFIFO1, gs, rs, mkBypassFIFO, r));
 
 /* TODO proprocessor macros to apply rBlock implicitly
-#define rAct(a) Act(a)
-#define rActV(a) ActV(a)
-#define rPar(...) Par(rBlock(__VA_ARGS__))
-#define rSeq(...) Seq(rBlock(__VA_ARGS__))
-#define rFastSeq(...) FastSeq(rBlock(__VA_ARGS__))
-#define rIfElse(a, b, c) IfElse(tuple3(a, b, c))
-#define rWhile(a, b) While(tuple2(a, b))
+#define rAct(a) RAct(a)
+#define rActV(a) RActV(a)
+#define rPar(...) RPar(rBlock(__VA_ARGS__))
+#define rSeq(...) RSeq(rBlock(__VA_ARGS__))
+#define rIfElse(a, b, c) RIfElse(tuple3(a, b, c))
+#define rWhile(a, b) RWhile(tuple2(a, b))
+...
 */
 
 // Recipe compiler front modules
@@ -228,7 +235,7 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
   case (r) matches
     // Action recipe
     ////////////////////////////////////////////////////////////////////////////
-    tagged Act .a: return rules
+    tagged RAct .a: return rules
       rule runAct;
         a;
         goFF.deq();
@@ -237,7 +244,7 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
     endrules;
     // ActionValue recipe
     ////////////////////////////////////////////////////////////////////////////
-    tagged ActV .av: return rules
+    tagged RActV .av: return rules
       rule runActV;
         Bool isDone <- av;
         if (isDone) begin
@@ -246,88 +253,13 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         end
       endrule
     endrules;
-    // Par recipe construct
-    ////////////////////////////////////////////////////////////////////////////
-    tagged Par .rs: begin
-      Integer parLength = length(rs);
-      List#(FlowFF) inFFs <- replicateM(parLength, mkBypassFIFO);
-      List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
-      Rules branchRules = fold(rJoin, map(tpl_2, branches));
-      Rules forkRule = rules rule forkPar;
-        goFF.deq();
-        function Action doEnq(FIFO#(x) ff) = action ff.enq(?); endaction;
-        joinActions(map(doEnq, inFFs));
-      endrule endrules;
-      Rules joinRule = rules rule joinPar;
-        function Action doDeq(FIFO#(x) ff) = action ff.deq(); endaction;
-        joinActions(map(doDeq, map(tpl_1, branches)));
-        doneFF.enq(?);
-      endrule endrules;
-      return rJoin(forkRule, rJoin(branchRules, joinRule));
-    end
-    // OneMatch recipe construct
-    ////////////////////////////////////////////////////////////////////////////
-    tagged OneMatch {.gs, .rs, .r}: begin
-      // check for valid lengths //
-      /////////////////////////////
-      Integer rlen = length(rs);
-      Integer glen = length(gs);
-      if (rlen != glen) error(sprintf("OneMatch recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
-      // local resources //
-      /////////////////////
-      PulseWire done                         <- mkPulseWireOR;
-      FlowFF dfltFF                          <- mkBypassFIFO;
-      Tuple2#(FlowFF, Rules) dflt            <- compileWrapOut(mkBypassFIFO, r, dfltFF);
-      List#(FlowFF) inFFs                    <- replicateM(rlen, mkBypassFIFO);
-      List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
-      // rules for branch recipes //
-      //////////////////////////////
-      Rules allbranchRules = fold(rJoinMutuallyExclusive, map(tpl_2, branches));
-      Rules dfltBranchRules = tpl_2(dflt);
-      Rules branchRules = rJoinMutuallyExclusive(allbranchRules, dfltBranchRules);
-      // rules for branch triggering //
-      /////////////////////////////////
-      Rules triggerRules = rules rule triggerOneMatch;
-        goFF.deq();
-        // trigger first matching branch, or default branch otherwise
-        case(find(tpl_1, zip(gs, inFFs))) matches
-          tagged Valid {.guard, .ff}: ff.enq(?);
-          tagged Invalid: dfltFF.enq(?);
-        endcase
-      endrule endrules;
-      // rules to gather each branch //
-      /////////////////////////////////
-      function Rules gatherRule(FIFO#(x) ff) = rules
-        rule gatherOneMatch; ff.deq(); done.send(); endrule
-      endrules;
-      Rules allGatherRules = fold(rJoinMutuallyExclusive, map(gatherRule, map(tpl_1, branches)));
-      Rules dfltGatherRules = rules
-        rule gatherDfltOneMatch; tpl_1(dflt).deq(); done.send(); endrule
-      endrules;
-      Rules gatherRules = rJoinMutuallyExclusive(allGatherRules, dfltGatherRules);
-      // rules to generate final done signal //
-      /////////////////////////////////////////
-      Rules finalRules = rules
-        rule finalOneMatch (done); doneFF.enq(?); endrule
-      endrules;
-      // compose all rules and return
-      return rJoin(triggerRules, rJoin(branchRules, rJoin(gatherRules, finalRules)));
-    end
-    // Seq recipe construct
-    ////////////////////////////////////////////////////////////////////////////
-    tagged Seq Nil: begin Rules x <- emptySeq; return x; end
-    tagged Seq .rs: begin Rules x <- nonEmptySeq(mkFIFO1, rs); return x; end
-    // FastSeq recipe construct
-    ////////////////////////////////////////////////////////////////////////////
-    tagged FastSeq Nil: begin Rules x <- emptySeq; return x; end
-    tagged FastSeq .rs: begin Rules x <- nonEmptySeq(mkBypassFIFO, rs); return x; end
     // If / Else recipe construct
     ////////////////////////////////////////////////////////////////////////////
-    tagged IfElse {.cond, .r_if, .r_else}: begin
+    tagged RIfElse {.mkFF, .cond, .r_if, .r_else}: begin
       // declare flow control state //
       ////////////////////////////////
-      FlowFF inFF_if     <- mkBypassFIFO;
-      FlowFF inFF_else   <- mkBypassFIFO;
+      FlowFF inFF_if     <- mkFF;
+      FlowFF inFF_else   <- mkFF;
       FlowFF outFF_if    <- mkBypassFIFO;
       FlowFF outFF_else  <- mkBypassFIFO;
       FIFO#(Bool) condFF <- mkBypassFIFO;
@@ -359,8 +291,8 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
     end
     // While loop recipe construct
     ////////////////////////////////////////////////////////////////////////////
-    tagged While {.cond, .r}: begin
-      FlowFF inFF <- mkBypassFIFO;
+    tagged RWhile {.mkFF, .cond, .r}: begin
+      FlowFF inFF <- mkFF;
       FlowFF outFF <- mkBypassFIFO;
       Reg#(Bool) busy[2] <- mkCReg(2, False);
       Reg#(Bool) activeStep[3] <- mkCReg(3, False);
@@ -398,6 +330,77 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         endrule
       endrules;
       return rJoin(innerRules, wrappingRules);
+    end
+    // Seq recipe construct
+    ////////////////////////////////////////////////////////////////////////////
+    tagged RSeq {.mkFF, Nil}: begin Rules x <- emptySeq; return x; end
+    tagged RSeq {.mkFF, .rs}: begin Rules x <- nonEmptySeq(mkFF, rs); return x; end
+    // Par recipe construct
+    ////////////////////////////////////////////////////////////////////////////
+    tagged RPar {.mkFF, .rs}: begin
+      Integer parLength = length(rs);
+      List#(FlowFF) inFFs <- replicateM(parLength, mkFF);
+      List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
+      Rules branchRules = fold(rJoin, map(tpl_2, branches));
+      Rules forkRule = rules rule forkPar;
+        goFF.deq();
+        function Action doEnq(FIFO#(x) ff) = action ff.enq(?); endaction;
+        joinActions(map(doEnq, inFFs));
+      endrule endrules;
+      Rules joinRule = rules rule joinPar;
+        function Action doDeq(FIFO#(x) ff) = action ff.deq(); endaction;
+        joinActions(map(doDeq, map(tpl_1, branches)));
+        doneFF.enq(?);
+      endrule endrules;
+      return rJoin(forkRule, rJoin(branchRules, joinRule));
+    end
+    // OneMatch recipe construct
+    ////////////////////////////////////////////////////////////////////////////
+    tagged ROneMatch {.mkFF, .gs, .rs, .mkDfltFF, .r}: begin
+      // check for valid lengths //
+      /////////////////////////////
+      Integer rlen = length(rs);
+      Integer glen = length(gs);
+      if (rlen != glen) error(sprintf("OneMatch recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
+      // local resources //
+      /////////////////////
+      PulseWire done                         <- mkPulseWireOR;
+      FlowFF dfltFF                          <- mkDfltFF;
+      Tuple2#(FlowFF, Rules) dflt            <- compileWrapOut(mkBypassFIFO, r, dfltFF);
+      List#(FlowFF) inFFs                    <- replicateM(rlen, mkFF);
+      List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
+      // rules for branch recipes //
+      //////////////////////////////
+      Rules allbranchRules = fold(rJoinMutuallyExclusive, map(tpl_2, branches));
+      Rules dfltBranchRules = tpl_2(dflt);
+      Rules branchRules = rJoinMutuallyExclusive(allbranchRules, dfltBranchRules);
+      // rules for branch triggering //
+      /////////////////////////////////
+      Rules triggerRules = rules rule triggerOneMatch;
+        goFF.deq();
+        // trigger first matching branch, or default branch otherwise
+        case(find(tpl_1, zip(gs, inFFs))) matches
+          tagged Valid {.guard, .ff}: ff.enq(?);
+          tagged Invalid: dfltFF.enq(?);
+        endcase
+      endrule endrules;
+      // rules to gather each branch //
+      /////////////////////////////////
+      function Rules gatherRule(FIFO#(x) ff) = rules
+        rule gatherOneMatch; ff.deq(); done.send(); endrule
+      endrules;
+      Rules allGatherRules = fold(rJoinMutuallyExclusive, map(gatherRule, map(tpl_1, branches)));
+      Rules dfltGatherRules = rules
+        rule gatherDfltOneMatch; tpl_1(dflt).deq(); done.send(); endrule
+      endrules;
+      Rules gatherRules = rJoinMutuallyExclusive(allGatherRules, dfltGatherRules);
+      // rules to generate final done signal //
+      /////////////////////////////////////////
+      Rules finalRules = rules
+        rule finalOneMatch (done); doneFF.enq(?); endrule
+      endrules;
+      // compose all rules and return
+      return rJoin(triggerRules, rJoin(branchRules, rJoin(gatherRules, finalRules)));
     end
   endcase
 endmodule
