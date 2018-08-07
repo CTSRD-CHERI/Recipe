@@ -268,20 +268,25 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
     // AllGuard recipe construct
     ////////////////////////////////////////////////////////////////////////////
     tagged AllGuard {.gs, .rs}: begin
-      // check for valid lengths
+      // check for valid lengths //
+      /////////////////////////////
       Integer rlen = length(rs);
       Integer glen = length(gs);
       if (rlen != glen) error(sprintf("AllGuard recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
-      // local resources
-      List#(FlowFF) inFFs <- replicateM(rlen, mkBypassFIFO);
-      List#(Array#(Reg#(Bool))) guards <- replicateM(rlen, mkCReg(2, False));
-      List#(Array#(Reg#(Bool))) dones  <- replicateM(rlen, mkCReg(3, False));
+      // local resources //
+      /////////////////////
+      List#(Array#(Reg#(Bool))) guards       <- replicateM(rlen, mkCReg(2, False));
+      List#(Array#(Reg#(Bool))) dones        <- replicateM(rlen, mkCReg(3, False));
+      List#(FlowFF) inFFs                    <- replicateM(rlen, mkBypassFIFO);
       List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
-      Rules branchRules = fold(rJoin, map(tpl_2, branches));
       // reset helper
       function Action doResetDone(Integer ifc, Reg#(Bool) rd[]) = action rd[ifc] <= False; endaction;
-      // trigger matching branches
-      Rules forkRule = rules rule forkPar;
+      // rules for branch recipes //
+      //////////////////////////////
+      Rules branchRules = fold(rJoin, map(tpl_2, branches));
+      // rules for branch triggering //
+      /////////////////////////////////
+      Rules triggerRules = rules rule triggerAllGuard;
         goFF.deq();
         joinActions(map(doResetDone(0), dones));
         function Action doLatchGuard(Bool g, Reg#(Bool) rg[]) = action rg[0] <= g; endaction;
@@ -289,52 +294,55 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         function Action doEnq(Bool g, FIFO#(x) ff) = action if (g) ff.enq(?); endaction;
         joinActions(zipWith(doEnq, gs, inFFs));
       endrule endrules;
-      // get done signal for each branch
-      function Rules buildJoinRules(Reg#(Bool) done[], Reg#(Bool) guard[], FIFO#(x) ff) = rules
-        rule joinActiveAllGuard(!done[1] && guard[1]);
-          ff.deq();
-          done[1] <= True;
-        endrule
-        rule joinInactiveAllGuard(!done[1] && !guard[1]);
-          done[1] <= True;
-        endrule
+      // rules to gather each branch //
+      /////////////////////////////////
+      function Rules buildGatherRules(Reg#(Bool) done[], Reg#(Bool) guard[], FIFO#(x) ff) = rules
+        rule gatherActiveAllGuard(!done[1] && guard[1]); ff.deq(); done[1] <= True; endrule
+        rule gatherInactiveAllGuard(!done[1] && !guard[1]); done[1] <= True; endrule
       endrules;
-      Rules joinRules = fold(rJoin, zipWith3(buildJoinRules, dones, guards, map(tpl_1, branches)));
-      // final join of all branches
+      Rules gatherRules = fold(rJoin, zipWith3(buildGatherRules, dones, guards, map(tpl_1, branches)));
+      // rules to generate final done signal //
+      /////////////////////////////////////////
       function readIfc3(x) = readReg(x[2]);
       Bool finalDone = \and (map(readIfc3, dones));
-      Rules finalJoinRules = rules rule finalJoin(finalDone);
-        doneFF.enq(?);
-        joinActions(map(doResetDone(2), dones));
-      endrule endrules;
-      return rJoin(forkRule, rJoin(branchRules, rJoin(joinRules, finalJoinRules)));
+      Rules doneAllGuardRules = rules
+        rule doneAllGuard(finalDone); doneFF.enq(?); joinActions(map(doResetDone(2), dones)); endrule
+      endrules;
+      // compose all rules and return
+      return rJoin(triggerRules, rJoin(branchRules, rJoin(gatherRules, doneAllGuardRules)));
     end
     // OneMatch recipe construct
     ////////////////////////////////////////////////////////////////////////////
     tagged OneMatch {.gs, .rs, .r}: begin
-      // check for valid lengths
+      // check for valid lengths //
+      /////////////////////////////
       Integer rlen = length(rs);
       Integer glen = length(gs);
       if (rlen != glen) error(sprintf("OneMatch recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
-      // local resources
-      List#(FlowFF) inFFs <- replicateM(rlen, mkBypassFIFO);
-      FlowFF dfltFF <- mkBypassFIFO;
-      PulseWire done <- mkPulseWireOR;
+      // local resources //
+      /////////////////////
+      PulseWire done                         <- mkPulseWireOR;
+      FlowFF dfltFF                          <- mkBypassFIFO;
+      Tuple2#(FlowFF, Rules) dflt            <- compileWrapOut(mkBypassFIFO, r, dfltFF);
+      List#(FlowFF) inFFs                    <- replicateM(rlen, mkBypassFIFO);
       List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
-      Tuple2#(FlowFF, Rules) dflt <- compileWrapOut(mkBypassFIFO, r, dfltFF);
-      // gather rules for each branch
+      // rules for branch recipes //
+      //////////////////////////////
       Rules allbranchRules = fold(rJoinMutuallyExclusive, map(tpl_2, branches));
       Rules dfltBranchRules = tpl_2(dflt);
       Rules branchRules = rJoinMutuallyExclusive(allbranchRules, dfltBranchRules);
-      // trigger first matching branch, or default branch otherwise
+      // rules for branch triggering //
+      /////////////////////////////////
       Rules triggerRules = rules rule triggerOneMatch;
         goFF.deq();
+        // trigger first matching branch, or default branch otherwise
         case(find(tpl_1, zip(gs, inFFs))) matches
           tagged Valid {.guard, .ff}: ff.enq(?);
           tagged Invalid: dfltFF.enq(?);
         endcase
       endrule endrules;
-      // gather done signal for each branch
+      // rules to gather each branch //
+      /////////////////////////////////
       function Rules gatherRule(FIFO#(x) ff) = rules
         rule gatherOneMatch; ff.deq(); done.send(); endrule
       endrules;
@@ -343,10 +351,12 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         rule gatherDfltOneMatch; tpl_1(dflt).deq(); done.send(); endrule
       endrules;
       Rules gatherRules = rJoinMutuallyExclusive(allGatherRules, dfltGatherRules);
-      // signal end on done
+      // rules to generate final done signal //
+      /////////////////////////////////////////
       Rules finalRules = rules
         rule finalOneMatch (done); doneFF.enq(?); endrule
       endrules;
+      // compose all rules and return
       return rJoin(triggerRules, rJoin(branchRules, rJoin(gatherRules, finalRules)));
     end
     // Seq recipe construct

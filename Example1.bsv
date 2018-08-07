@@ -278,8 +278,8 @@ module top ();
   Recipe r20 = rWhile((cnt < 10), rFastSeq(rBlock(rOneMatch(
   // list of 3 bools
   cons(False,
-  cons(False,
-  cons(False,
+  cons(True,
+  cons(True,
   Nil))),
   // list of 3 recipes
   cons(rAct(action $display("%0t -- A", $time); endaction),
@@ -314,8 +314,8 @@ module top ();
   //let m <- compile(r16);
   //let m <- compile(r17);
   //let m <- compile(r18);
-  //let m <- compile(r19);
-  let m <- compile(r20);
+  let m <- compile(r19);
+  //let m <- compile(r20);
 
   // Start runing the recipe
 	rule run; m.start(); endrule
