@@ -30,6 +30,7 @@
 package Recipe;
 
 // list of imported packages
+import Printf :: *;
 import List :: *;
 import FIFO :: *;
 import GetPut :: *;
@@ -43,6 +44,7 @@ export rActV;
 export rFastSeq;
 export rSeq;
 export rPar;
+export rAllMatch;
 export rIfElse;
 export rWhen;
 export rWhile;
@@ -60,6 +62,7 @@ typedef union tagged {
   Action Act; // Basic Action recipe
   ActionValue#(Bool) ActV; // ActionValue recipe
   List#(Recipe) Par; // All recipes happen in parallel
+  Tuple2#(List#(Bool), List#(Recipe)) AllMatch; // All recipes with predicate matching happen in parallel
   List#(Recipe) Seq; // All recipes happen in order with one cycle latency (separated by mkFIFO1)
   // XXX FastSeq:
   // All recipes happen in order with no latency (separated by mkBypassFIFO).
@@ -100,6 +103,7 @@ endfunction
 function Recipe rAct(Action a) = Act(a);
 function Recipe rActV(ActionValue#(Bool) a) = ActV(a);
 function Recipe rPar(List#(Recipe) rs) = Par(rs);
+function Recipe rAllMatch(List#(Bool) gs, List#(Recipe) rs) = AllMatch(tuple2(gs, rs));
 function Recipe rSeq(List#(Recipe) rs) = Seq(rs);
 function Recipe rFastSeq(List#(Recipe) rs) = FastSeq(rs);
 function Recipe rIfElse(Bool c, Recipe r0, Recipe r1) = IfElse(tuple3(c, r0, r1));
@@ -257,6 +261,50 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         doneFF.enq(?);
       endrule endrules;
       return rJoin(forkRule, rJoin(branchRules, joinRule));
+    end
+    // AllMatch recipe construct
+    ////////////////////////////////////////////////////////////////////////////
+    tagged AllMatch {.gs, .rs}: begin
+      // check for valid lengths
+      Integer rlen = length(rs);
+      Integer glen = length(gs);
+      if (rlen != glen) error(sprintf("AllMatch recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
+      // local resources
+      List#(FlowFF) inFFs <- replicateM(rlen, mkBypassFIFO);
+      List#(Array#(Reg#(Bool))) guards <- replicateM(rlen, mkCReg(2, False));
+      List#(Array#(Reg#(Bool))) dones  <- replicateM(rlen, mkCReg(3, False));
+      List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
+      Rules branchRules = fold(rJoin, map(tpl_2, branches));
+      // reset helper
+      function Action doResetDone(Integer ifc, Reg#(Bool) rd[]) = action rd[ifc] <= False; endaction;
+      // trigger matching branches
+      Rules forkRule = rules rule forkPar;
+        goFF.deq();
+        joinActions(map(doResetDone(0), dones));
+        function Action doLatchGuard(Bool g, Reg#(Bool) rg[]) = action rg[0] <= g; endaction;
+        joinActions(zipWith(doLatchGuard, gs, guards));
+        function Action doEnq(Bool g, FIFO#(x) ff) = action if (g) ff.enq(?); endaction;
+        joinActions(zipWith(doEnq, gs, inFFs));
+      endrule endrules;
+      // get done signal for each branche
+      function Rules buildJoinRules(Reg#(Bool) done[], Reg#(Bool) guard[], FIFO#(x) ff) = rules
+        rule joinActiveAllMatch(!done[1] && guard[1]);
+          ff.deq();
+          done[1] <= True;
+        endrule
+        rule joinInactiveAllMatch(!done[1] && !guard[1]);
+          done[1] <= True;
+        endrule
+      endrules;
+      Rules joinRules = fold(rJoin, zipWith3(buildJoinRules, dones, guards, map(tpl_1, branches)));
+      // final join of all branches
+      function readIfc3(x) = readReg(x[2]);
+      Bool finalDone = \and (map(readIfc3, dones));
+      Rules finalJoinRules = rules rule finalJoin(finalDone);
+        doneFF.enq(?);
+        joinActions(map(doResetDone(2), dones));
+      endrule endrules;
+      return rJoin(forkRule, rJoin(branchRules, rJoin(joinRules, finalJoinRules)));
     end
     // Seq recipe construct
     ////////////////////////////////////////////////////////////////////////////

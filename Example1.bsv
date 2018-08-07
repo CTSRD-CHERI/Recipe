@@ -257,6 +257,24 @@ module top ();
     $display("%0t -- E", $time),
     rAct(action cnt <= cnt + 1; endaction)
   )));
+  Recipe r19 = rFastSeq(rBlock(rAllMatch(
+  // list of 3 bools
+  cons(True,
+  cons(False,
+  cons(True,
+  Nil))),
+  // list of 3 recipes
+  cons(rAct(action $display("%0t -- A", $time); endaction),
+  cons(rAct(action $display("%0t -- B", $time); endaction),
+  cons(rSeq(rBlock(
+    action $display("%0t -- C (1)", $time); endaction,
+    action $display("%0t -- C (2)", $time); endaction,
+    action $display("%0t -- C (3)", $time); endaction
+    )),
+  Nil)))
+  ),
+  action $display("%0t -- all is done", $time); endaction
+  ));
 
   // Compile one of the recipes
   //let m <- compile(r0);
@@ -277,7 +295,8 @@ module top ();
   //let m <- compile(r15);
   //let m <- compile(r16);
   //let m <- compile(r17);
-  let m <- compile(r18);
+  //let m <- compile(r18);
+  let m <- compile(r19);
 
   // Start runing the recipe
 	rule run; m.start(); endrule
