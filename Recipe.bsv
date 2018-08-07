@@ -63,7 +63,6 @@ typedef union tagged {
   Action Act; // Basic Action recipe
   ActionValue#(Bool) ActV; // ActionValue recipe
   List#(Recipe) Par; // All recipes happen in parallel
-  Tuple2#(List#(Bool), List#(Recipe)) AllGuard; // All recipes with predicate matching happen in parallel
   Tuple3#(List#(Bool), List#(Recipe), Recipe) OneMatch; // First recipe with that matches happens, otherwise fall-through recipe
   List#(Recipe) Seq; // All recipes happen in order with one cycle latency (separated by mkFIFO1)
   // XXX FastSeq:
@@ -105,7 +104,8 @@ endfunction
 function Recipe rAct(Action a) = Act(a);
 function Recipe rActV(ActionValue#(Bool) a) = ActV(a);
 function Recipe rPar(List#(Recipe) rs) = Par(rs);
-function Recipe rAllGuard(List#(Bool) gs, List#(Recipe) rs) = AllGuard(tuple2(gs, rs));
+// All recipes with predicate matching happen in parallel
+function Recipe rAllGuard(List#(Bool) gs, List#(Recipe) rs) = rPar(zipWith(rWhen, gs, rs));
 function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = OneMatch(tuple3(gs, rs, r));
 function Recipe rSeq(List#(Recipe) rs) = Seq(rs);
 function Recipe rFastSeq(List#(Recipe) rs) = FastSeq(rs);
@@ -264,52 +264,6 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
         doneFF.enq(?);
       endrule endrules;
       return rJoin(forkRule, rJoin(branchRules, joinRule));
-    end
-    // AllGuard recipe construct
-    ////////////////////////////////////////////////////////////////////////////
-    tagged AllGuard {.gs, .rs}: begin
-      // check for valid lengths //
-      /////////////////////////////
-      Integer rlen = length(rs);
-      Integer glen = length(gs);
-      if (rlen != glen) error(sprintf("AllGuard recipe constructor: list of guards and of recipes must be the same lenght (given %0d guards and %0d recipes).", glen, rlen));
-      // local resources //
-      /////////////////////
-      List#(Array#(Reg#(Bool))) guards       <- replicateM(rlen, mkCReg(2, False));
-      List#(Array#(Reg#(Bool))) dones        <- replicateM(rlen, mkCReg(3, False));
-      List#(FlowFF) inFFs                    <- replicateM(rlen, mkBypassFIFO);
-      List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
-      // reset helper
-      function Action doResetDone(Integer ifc, Reg#(Bool) rd[]) = action rd[ifc] <= False; endaction;
-      // rules for branch recipes //
-      //////////////////////////////
-      Rules branchRules = fold(rJoin, map(tpl_2, branches));
-      // rules for branch triggering //
-      /////////////////////////////////
-      Rules triggerRules = rules rule triggerAllGuard;
-        goFF.deq();
-        joinActions(map(doResetDone(0), dones));
-        function Action doLatchGuard(Bool g, Reg#(Bool) rg[]) = action rg[0] <= g; endaction;
-        joinActions(zipWith(doLatchGuard, gs, guards));
-        function Action doEnq(Bool g, FIFO#(x) ff) = action if (g) ff.enq(?); endaction;
-        joinActions(zipWith(doEnq, gs, inFFs));
-      endrule endrules;
-      // rules to gather each branch //
-      /////////////////////////////////
-      function Rules buildGatherRules(Reg#(Bool) done[], Reg#(Bool) guard[], FIFO#(x) ff) = rules
-        rule gatherActiveAllGuard(!done[1] && guard[1]); ff.deq(); done[1] <= True; endrule
-        rule gatherInactiveAllGuard(!done[1] && !guard[1]); done[1] <= True; endrule
-      endrules;
-      Rules gatherRules = fold(rJoin, zipWith3(buildGatherRules, dones, guards, map(tpl_1, branches)));
-      // rules to generate final done signal //
-      /////////////////////////////////////////
-      function readIfc3(x) = readReg(x[2]);
-      Bool finalDone = \and (map(readIfc3, dones));
-      Rules doneAllGuardRules = rules
-        rule doneAllGuard(finalDone); doneFF.enq(?); joinActions(map(doResetDone(2), dones)); endrule
-      endrules;
-      // compose all rules and return
-      return rJoin(triggerRules, rJoin(branchRules, rJoin(gatherRules, doneAllGuardRules)));
     end
     // OneMatch recipe construct
     ////////////////////////////////////////////////////////////////////////////
