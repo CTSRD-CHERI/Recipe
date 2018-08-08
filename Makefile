@@ -29,14 +29,23 @@
 
 BSC = bsc
 
+BSCFLAGS = -show-schedule -sched-dot
+BSCFLAGS += -show-range-conflict
+BSCFLAGS += -bdir bdir -simdir simdir -info-dir info-dir
+
 all: $(patsubst Example%.bsv, example%, $(wildcard Example*.bsv))
 
 example%: Example%.bsv Recipe.bsv
-	mkdir -p bdir-$@ simdir-$@
-	$(BSC) -bdir bdir-$@ -simdir simdir-$@ -u -sim -g top $<
-	$(BSC) -bdir bdir-$@ -simdir simdir-$@ -sim -e top -o $@
+	mkdir -p bdir simdir info-dir
+	$(BSC) $(BSCFLAGS) -u -sim -g top $<
+	$(BSC) $(BSCFLAGS) -sim -e top -o $@
+	dot -Tsvg info-dir/top_exec.dot > info-dir/top_exec.svg
+	dot -Tsvg info-dir/top_urgency.dot > info-dir/top_urgency.svg
+	dot -Tsvg info-dir/top_combined.dot > info-dir/top_combined.svg
+	dot -Tsvg info-dir/top_conflict.dot > info-dir/top_conflict.svg
 
 .PHONY: clean
 clean:
 	rm -fr *example*
+	rm -fr bdir simdir info-dir
 	ls Recipe.* | grep -v Recipe.bsv | xargs rm -f

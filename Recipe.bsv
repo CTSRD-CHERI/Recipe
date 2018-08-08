@@ -65,7 +65,7 @@ typedef union tagged {
   ActionValue#(Bool) RActV;
   Tuple4#(Module#(FlowFF), Bool, Recipe, Recipe) RIfElse;
   Tuple3#(Module#(FlowFF), Bool, Recipe) RWhile;
-  Tuple2#(Module#(FlowFF), List#(Recipe)) RSeq;
+  Tuple3#(Module#(FlowFF), function Rules f(Rules x, Rules y), List#(Recipe)) RSeq;
   Tuple2#(Module#(FlowFF), List#(Recipe)) RPar;
   Tuple5#(Module#(FlowFF), List#(Bool), List#(Recipe), Module#(FlowFF), Recipe) ROneMatch;
 } Recipe;
@@ -105,13 +105,13 @@ function Recipe rWhen(Bool c, Recipe r) = rIfElse(c, r, rAct(noAction));
 // Recipe happens as long as the condition is True
 function Recipe rWhile(Bool c, Recipe r) = RWhile(tuple3(mkBypassFIFO, c, r));
 // All recipes happen in order
-function Recipe rSeq(List#(Recipe) rs) = RSeq(tuple2(mkFIFO1, rs));
+function Recipe rSeq(List#(Recipe) rs) = RSeq(tuple3(mkFIFO1, rJoinMutuallyExclusive, rs));
 // XXX FastSeq:
 // All recipes happen in order with no latency (separated by mkBypassFIFO).
 // Data dependencies can still create latency. Any module whose firing in an early rule depends
 // on the firing of a later rule (typically mkPipeLineFIFO and the likes) will cause a scheduling
 // error as the rules are separated by a mkBypassFIFO, leading to a cycle in the canfire/willfire signals.
-function Recipe rFastSeq(List#(Recipe) rs) = RSeq(tuple2(mkBypassFIFO, rs));
+function Recipe rFastSeq(List#(Recipe) rs) = RSeq(tuple3(mkBypassFIFO, rJoinDescendingUrgency, rs));
 // All recipes happen in parallel
 function Recipe rPar(List#(Recipe) rs) = RPar(tuple2(mkBypassFIFO, rs));
 // All recipes with predicate matching happen in parallel
@@ -308,10 +308,10 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
     end
     // Seq recipe construct
     ////////////////////////////////////////////////////////////////////////////
-    tagged RSeq {.mkFF, Nil}: return rules
+    tagged RSeq {.mkFF, .rulesJoin, Nil}: return rules
       rule emptySeq; goFF.deq(); doneFF.enq(?); endrule
     endrules;
-    tagged RSeq {.mkFF, .rs}: begin
+    tagged RSeq {.mkFF, .rulesJoin, .rs}: begin
       FlowFF lastFF = goFF;
       Integer seqLength = length(rs);
       List#(Recipe) rList = rs;
@@ -320,11 +320,11 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
       for (Integer i = 0; i < seqLength - 1; i = i + 1) begin
         Tuple2#(FlowFF, Rules) step <- compileWrapOut(mkFF, head(rList), lastFF);
         lastFF = tpl_1(step);
-        seqRules = rJoinExecutionOrder(seqRules, tpl_2(step));
+        seqRules = rulesJoin(seqRules, tpl_2(step));
         rList = tail(rList);
       end
       Rules lastStep <- innerCompile(head(rList), lastFF, doneFF);
-      return rJoinExecutionOrder(seqRules, lastStep);
+      return rulesJoin(seqRules, lastStep);
     end
     // Par recipe construct
     ////////////////////////////////////////////////////////////////////////////

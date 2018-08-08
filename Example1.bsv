@@ -54,10 +54,11 @@ module top ();
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
     $display("%0t -- D", $time),
+    rFastSeq(rBlock(
     $display("%0t -- E", $time),
     $display("%0t -- F", $time),
     $display("%0t -- G", $time),
-    $display("%0t -- H", $time)
+    $display("%0t -- H", $time)))
   ));
   Recipe r2 = rSeq(rBlock(
     $display("%0t -- A", $time),
@@ -296,7 +297,7 @@ module top ();
 
   // Compile one of the recipes
   //let m <- compile(r0);
-  //let m <- compile(r1);
+  let m <- compile(r1);
   //let m <- compile(r2);
   //let m <- compile(r3);
   //let m <- compile(r4);
@@ -314,7 +315,7 @@ module top ();
   //let m <- compile(r16);
   //let m <- compile(r17);
   //let m <- compile(r18);
-  let m <- compile(r19);
+  //let m <- compile(r19);
   //let m <- compile(r20);
 
   // Start runing the recipe
