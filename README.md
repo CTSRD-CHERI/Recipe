@@ -70,35 +70,20 @@ and also allow the user to access any desired internal signal in [Recipe.bsv](Re
 
 ## Library overview
 
-The `Recipe` type is provided to hold the recipe being built. It is defined as follows:
+The `Recipe` type is defined as a BSV union tagged:
 
 ```bsv
 typedef union tagged {
-  Action Act; // Basic Action recipe
-  ActionValue#(Bool) ActV; // ActionValue recipe
-  List#(Recipe) Par; // All recipes happen in parallel
-  List#(Recipe) Seq; // All recipes happen in order with one cycle latency (separated by mkFIFO1)
-  // XXX FastSeq:
-  // All recipes happen in order with no latency (separated by mkBypassFIFO).
-  // Data dependencies can still create latency. Any module whose firing in an early rule depends
-  // on the firing of a later rule (typically mkPipeLineFIFO and the likes) will cause a scheduling
-  // error as the rules are separated by a mkBypassFIFO, leading to a cycle in the canfire/willfire signals.
-  List#(Recipe) FastSeq;
-  Tuple3#(Bool, Recipe, Recipe) IfElse; // First recipe happens for a True condition, second recipe otherwise
-  Tuple2#(Bool, Recipe) While; // Recipe happens as long as the condition is True
+// union tagged constructors...
 } Recipe;
 ```
 
-A `Recipe` is built using a combination of recipe constructors such as `rSeq` to create a sequence for example.
-Recipe constructors are described in the [Recipe constructors](#recipe-constructors) section. The library
-defines a `compile` module:
+The BSV type constructors can be found in [Recipe.bsv](Recipe.bsv), but they are not meant to be directly used and are therefore not exported by the package. Instead, a `Recipe` is built using a combination of recipe constructors described in the [Recipe constructors](#recipe-constructors) section.
+
+To build a state machine from a `Recipe`, the library defines a `compile` module with the folowing type signature:
 
 ```bsv
 module [Module] compile#(Recipe r) (RecipeFSM);
-  Tuple2#(Rules, RecipeFSM) x <- topCompile(r);
-  addRules(tpl_1(x));
-  return tpl_2(x);
-endmodule
 ```
 
 A `Recipe` can be compiled using the `compile` module to get a `RecipeFSM` interface as follows:
@@ -120,32 +105,26 @@ interface RecipeFSM;
 endinterface
 ```
 
-As per their names suggest,
+As their names suggest,
 * the `start` method starts the machine
 * the `isLastCycle` method returns `True` if the cycle is the last one before the machine is done
 * the `isDone` method returns `True` if the machine is done
 * the `waitForDone` method can be used to add an implicit condition to wait for the machine to be done
 
-Additionally, the library provides the `compileRules` module that returns the `Rules` handle rather
-than performing the call to `addRules`, giving the user the ability to schedule the generated rules
-according to their needs.
+Additionally, the library provides the `compileRules` module with a type signature as follows:
 
 ```bsv
 module [Module] compileRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
-  Tuple2#(Rules, RecipeFSM) x <- topCompile(r);
-  return x;
-endmodule
 ```
+
+As opposed to the `compile` module, the `compileRules` module will return the compiled `Rules` together with the `RecipeFSM` interface rather than adding the rules to the current module, giving the user the ability to schedule the generated rules
+according to their needs.
 
 The `compileMutuallyExclusive` module compiles a list of recipes, adds the rules for each recipe such
 that they are mutually exclusive, and returns a list of interfaces to the generated machines.
 
 ```bsv
 module [Module] compileMutuallyExclusive#(List#(Recipe) rs) (List#(RecipeFSM));
-  List#(Tuple2#(Rules, RecipeFSM)) xs <- mapM(topCompile, rs);
-  addRules(fold(rJoinMutuallyExclusive, map(tpl_1, xs)));
-  return map(tpl_2,xs);
-endmodule
 ```
 
 ## Recipe constructors
@@ -153,13 +132,13 @@ endmodule
 * The `rAct` recipe constructor simply wraps an `Action`
 
 ```bsv
-function Recipe rAct(Action a) = Act(a);
+function Recipe rAct(Action a);
 ```
 
 * The `rActV` recipe constructor simply wraps an `ActionValue#(Bool)`
 
 ```bsv
-function Recipe rActV(ActionValue#(Bool) a) = ActV(a);
+function Recipe rActV(ActionValue#(Bool) a);
 ```
 
 * The `rSeq` recipe constructor creates a sequence of `Recipe`s executed in order.
@@ -167,7 +146,7 @@ function Recipe rActV(ActionValue#(Bool) a) = ActV(a);
   many `Recipe` to be placed in a list.
 
 ```bsv
-function Recipe rSeq(List#(Recipe) rs) = Seq(rs);
+function Recipe rSeq(List#(Recipe) rs);
 ```
 
 * The `rPar` recipe constructor creates a group of `Recipe`s executed in parallel.
@@ -175,7 +154,7 @@ function Recipe rSeq(List#(Recipe) rs) = Seq(rs);
   many `Recipe` to be placed in a list.
 
 ```bsv
-function Recipe rPar(List#(Recipe) rs) = Par(rs);
+function Recipe rPar(List#(Recipe) rs);
 ```
 
 * The `rFastSeq` recipe constructor creates a sequence of `Recipe`s executed in order.
@@ -185,7 +164,7 @@ function Recipe rPar(List#(Recipe) rs) = Par(rs);
   many `Recipe` to be placed in a list.
 
 ```bsv
-function Recipe rFastSeq(List#(Recipe) rs) = FastSeq(rs);
+function Recipe rFastSeq(List#(Recipe) rs);
 ```
 
 * The `rIfElse` recipe constructor takes a `Bool` condition together with a pair of
@@ -193,12 +172,12 @@ function Recipe rFastSeq(List#(Recipe) rs) = FastSeq(rs);
   one if the condition is `False`.
 
 ```bsv
-function Recipe rIfElse(Bool c, Recipe r0, Recipe r1) = IfElse(tuple3(c, r0, r1));
+function Recipe rIfElse(Bool c, Recipe r0, Recipe r1);
 ```
 
 * The `rWhile` recipe constructor takes a `Bool` condition together with a `Recipe`,
 and executes the `Recipe` as long as the condition is `True`.
 
 ```bsv
-function Recipe rWhile(Bool c, Recipe r) = While(tuple2(c, r));
+function Recipe rWhile(Bool c, Recipe r);
 ```
