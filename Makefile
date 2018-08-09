@@ -29,7 +29,11 @@
 
 BSC = bsc
 
-BSCFLAGS = -show-schedule -sched-dot
+BLUEUTILSDIR = ./BlueBasics
+BSVPATH = +:$(BLUEUTILSDIR)
+
+BSCFLAGS = -p $(BSVPATH) -check-assert
+BSCFLAGS += -show-schedule -sched-dot
 BSCFLAGS += -show-range-conflict
 BSCFLAGS += -bdir bdir -simdir simdir -info-dir info-dir
 

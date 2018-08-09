@@ -37,6 +37,8 @@ import GetPut :: *;
 import Connectable :: * ;
 import SpecialFIFOs :: *;
 
+import BlueBasics :: *;
+
 // list of exported indentifiers
 export Recipe;
 export rAct;
@@ -50,6 +52,7 @@ export rOneMatchDelay;
 export rIfElse;
 export rWhen;
 export rWhile;
+export rTag;
 export rBlock;
 export RecipeBlock;
 export RecipeFSM(..);
@@ -68,6 +71,7 @@ typedef union tagged {
   Tuple3#(Module#(FlowFF), function Rules f(Rules x, Rules y), List#(Recipe)) RSeq;
   Tuple2#(Module#(FlowFF), List#(Recipe)) RPar;
   Tuple5#(Module#(FlowFF), List#(Bool), List#(Recipe), Module#(FlowFF), Recipe) ROneMatch;
+  Tuple2#(String, Recipe) RTag;
 } Recipe;
 
 // Recipe block constructor (to wrap multiple recipes in a list, passed to RSeq, RPar etc..)
@@ -119,6 +123,8 @@ function Recipe rAllGuard(List#(Bool) gs, List#(Recipe) rs) = rPar(zipWith(rWhen
 // First recipe with that matches happens, otherwise fall-through recipe
 function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatch(tuple5(mkBypassFIFO, gs, rs, mkBypassFIFO, r));
 function Recipe rOneMatchDelay(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatch(tuple5(mkFIFO1, gs, rs, mkBypassFIFO, r));
+// tag recipe
+function Recipe rTag(String s, Recipe r) = RTag(tuple2(s, r));
 
 /* TODO proprocessor macros to apply rBlock implicitly
 #define rAct(a) RAct(a)
@@ -162,6 +168,8 @@ endmodule
 // Recipe compiler inner modules
 ////////////////////////////////////////////////////////////////////////////////
 
+`define DICT_T Dict#(String, Rules)
+
 // top compile module wrapping the machine with appropriate flow control
 module [Module] topCompile#(Recipe r) (Tuple2#(Rules, RecipeFSM));
   FlowFF goFF <- mkBypassFIFO;
@@ -170,7 +178,7 @@ module [Module] topCompile#(Recipe r) (Tuple2#(Rules, RecipeFSM));
   Reg#(Bool) doneReg[3] <- mkCReg(3, False);
   PulseWire lastCycle <- mkPulseWire;
   // compile recipe and gather rules
-  Rules compiledRules <- innerCompile(r, goFF, doneFF);
+  `DICT_T compiledRules <- innerCompile("default-key", r, goFF, doneFF);
   Rules wrappingRules = rules
     rule endMachine;
       //$display("%0t -- endMachine", $time);
@@ -192,17 +200,17 @@ module [Module] topCompile#(Recipe r) (Tuple2#(Rules, RecipeFSM));
     method Action waitForDone() if (doneReg[2]) = action endaction;
   endmodule
   RecipeFSM machine <- mkIFC;
-  return tuple2(rJoin(wrappingRules, compiledRules), machine);
+  return tuple2(rJoin(wrappingRules, foldl(rJoinMutuallyExclusive, emptyRules, values(compiledRules))), machine);
 endmodule
 
 // main compile module
-module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
+module [Module] innerCompile#(String tag, Recipe r, FlowFF goFF, FlowFF doneFF) (`DICT_T);
 
   // module helper wrapping Recipe output with a provided FlowFF constructor
   //////////////////////////////////////////////////////////////////////////////
-  module [Module] compileWrapOut#(Module#(FlowFF) mkFF, Recipe r, FlowFF inFF) (Tuple2#(FlowFF, Rules));
+  module [Module] compileWrapOut#(Module#(FlowFF) mkFF, String t, Recipe r, FlowFF inFF) (Tuple2#(FlowFF, `DICT_T));
     FlowFF outFF <- mkFF;
-    Rules innerRules <- innerCompile(r, inFF, outFF);
+    `DICT_T innerRules <- innerCompile(t, r, inFF, outFF);
     return tuple2(outFF, innerRules);
   endmodule
   // core compiler
@@ -210,16 +218,16 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
   case (r) matches
     // Action recipe
     ////////////////////////////////////////////////////////////////////////////
-    tagged RAct .a: return rules
+    tagged RAct .a: return dict(tag, rules
       rule runAct;
         a;
         goFF.deq();
         doneFF.enq(?);
       endrule
-    endrules;
+    endrules);
     // ActionValue recipe
     ////////////////////////////////////////////////////////////////////////////
-    tagged RActV .av: return rules
+    tagged RActV .av: return dict(tag, rules
       rule runActV;
         Bool isDone <- av;
         if (isDone) begin
@@ -227,7 +235,7 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
           doneFF.enq(?);
         end
       endrule
-    endrules;
+    endrules);
     // If / Else recipe construct
     ////////////////////////////////////////////////////////////////////////////
     tagged RIfElse {.mkFF, .cond, .r_if, .r_else}: begin
@@ -240,29 +248,30 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
       FIFO#(Bool) condFF <- mkBypassFIFO;
       // compile and gather rules //
       //////////////////////////////
-      Rules ifRules   <- innerCompile(r_if, inFF_if, outFF_if);
-      Rules elseRules <- innerCompile(r_else, inFF_else, outFF_else);
-      Rules beforeRules = rules rule enqCondFF;
+      `DICT_T ifRules   <- innerCompile(tag, r_if, inFF_if, outFF_if);
+      `DICT_T elseRules <- innerCompile(tag, r_else, inFF_else, outFF_else);
+      `DICT_T beforeRules = dict(tag, rules rule enqCondFF;
         goFF.deq();
         condFF.enq(cond);
         if (cond) inFF_if.enq(?);
         else inFF_else.enq(?);
-      endrule endrules;
-      Rules afterIfRules = rules rule finishIf(condFF.first);
+      endrule endrules);
+      `DICT_T afterIfRules = dict(tag, rules rule finishIf(condFF.first);
         condFF.deq();
         outFF_if.deq();
         doneFF.enq(?);
-      endrule endrules;
-      Rules afterElseRules = rules rule finishElse(!condFF.first);
+      endrule endrules);
+      `DICT_T afterElseRules = dict(tag, rules rule finishElse(!condFF.first);
         condFF.deq();
         outFF_else.deq();
         doneFF.enq(?);
-      endrule endrules;
+      endrule endrules);
       // join rules //
       ////////////////
-      ifRules = rJoinExecutionOrder(ifRules, afterIfRules);
-      elseRules = rJoinExecutionOrder(elseRules, afterElseRules);
-      return rJoinExecutionOrder(beforeRules, rJoinMutuallyExclusive(ifRules, elseRules));
+      ifRules = mergeWith(rJoinExecutionOrder, ifRules, afterIfRules);
+      elseRules = mergeWith(rJoinExecutionOrder, elseRules, afterElseRules);
+      `DICT_T ifElseRules = mergeWith(rJoinMutuallyExclusive, ifRules, elseRules);
+      return mergeWith(rJoinExecutionOrder, beforeRules, ifElseRules);
     end
     // While loop recipe construct
     ////////////////////////////////////////////////////////////////////////////
@@ -275,8 +284,8 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
       // avoid scheduling issues between the inner rules updating the condition
       // and the wrapping rules reading it.
       PulseWire condValid <- mkPulseWire;
-      Rules innerRules <- innerCompile(r, inFF, outFF);
-      Rules wrappingRules =
+      `DICT_T innerRules <- innerCompile(tag, r, inFF, outFF);
+      `DICT_T wrappingRules = dict(tag,
       (* descending_urgency = "endStepWhile, endWhile"*)
       rules
         rule ackGoFFWhile (!busy[0]);
@@ -303,47 +312,47 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
           busy[1] <= False;
           doneFF.enq(?);
         endrule
-      endrules;
-      return rJoin(innerRules, wrappingRules);
+      endrules);
+      return mconcat(list(innerRules, wrappingRules));
     end
     // Seq recipe construct
     ////////////////////////////////////////////////////////////////////////////
-    tagged RSeq {.mkFF, .rulesJoin, Nil}: return rules
+    tagged RSeq {.mkFF, .rulesJoin, Nil}: return dict(tag, rules
       rule emptySeq; goFF.deq(); doneFF.enq(?); endrule
-    endrules;
+    endrules);
     tagged RSeq {.mkFF, .rulesJoin, .rs}: begin
       FlowFF lastFF = goFF;
       Integer seqLength = length(rs);
       List#(Recipe) rList = rs;
       // go through the list and leave the last element in there
-      Rules seqRules = emptyRules;
+      `DICT_T seqRules = mempty;
       for (Integer i = 0; i < seqLength - 1; i = i + 1) begin
-        Tuple2#(FlowFF, Rules) step <- compileWrapOut(mkFF, head(rList), lastFF);
+        Tuple2#(FlowFF, `DICT_T) step <- compileWrapOut(mkFF, tag, head(rList), lastFF);
         lastFF = tpl_1(step);
-        seqRules = rulesJoin(seqRules, tpl_2(step));
+        seqRules = mergeWith(rulesJoin, seqRules, tpl_2(step));
         rList = tail(rList);
       end
-      Rules lastStep <- innerCompile(head(rList), lastFF, doneFF);
-      return rulesJoin(seqRules, lastStep);
+      `DICT_T lastStep <- innerCompile(tag, head(rList), lastFF, doneFF);
+      return mergeWith(rulesJoin, seqRules, lastStep);
     end
     // Par recipe construct
     ////////////////////////////////////////////////////////////////////////////
     tagged RPar {.mkFF, .rs}: begin
       Integer parLength = length(rs);
       List#(FlowFF) inFFs <- replicateM(parLength, mkFF);
-      List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
-      Rules branchRules = fold(rJoin, map(tpl_2, branches));
-      Rules forkRule = rules rule forkPar;
+      List#(Tuple2#(FlowFF, `DICT_T)) branches <- zipWithM (compileWrapOut(mkBypassFIFO, tag), rs, inFFs);
+      `DICT_T branchRules = mconcat(map(tpl_2, branches));
+      `DICT_T forkRule = dict(tag, rules rule forkPar;
         goFF.deq();
         function Action doEnq(FIFO#(x) ff) = action ff.enq(?); endaction;
         joinActions(map(doEnq, inFFs));
-      endrule endrules;
-      Rules joinRule = rules rule joinPar;
+      endrule endrules);
+      `DICT_T joinRule = dict(tag, rules rule joinPar;
         function Action doDeq(FIFO#(x) ff) = action ff.deq(); endaction;
         joinActions(map(doDeq, map(tpl_1, branches)));
         doneFF.enq(?);
-      endrule endrules;
-      return rJoinExecutionOrder(forkRule, rJoinExecutionOrder(branchRules, joinRule));
+      endrule endrules);
+      return concatWith(rJoinExecutionOrder, list(forkRule, branchRules, joinRule));
     end
     // OneMatch recipe construct
     ////////////////////////////////////////////////////////////////////////////
@@ -355,26 +364,26 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
       if (rlen != glen) error(sprintf("OneMatch recipe constructor: list of guards and of recipes must be the same length (given %0d guards and %0d recipes).", glen, rlen));
       // local resources //
       /////////////////////
-      PulseWire done                         <- mkPulseWireOR;
-      FlowFF dfltFF                          <- mkDfltFF;
-      Tuple2#(FlowFF, Rules) dflt            <- compileWrapOut(mkBypassFIFO, r, dfltFF);
-      List#(FlowFF) inFFs                    <- replicateM(rlen, mkFF);
-      List#(Tuple2#(FlowFF, Rules)) branches <- zipWithM (compileWrapOut(mkBypassFIFO), rs, inFFs);
+      PulseWire done                           <- mkPulseWireOR;
+      FlowFF dfltFF                            <- mkDfltFF;
+      Tuple2#(FlowFF, `DICT_T) dflt            <- compileWrapOut(mkBypassFIFO, tag, r, dfltFF);
+      List#(FlowFF) inFFs                      <- replicateM(rlen, mkFF);
+      List#(Tuple2#(FlowFF, `DICT_T)) branches <- zipWithM (compileWrapOut(mkBypassFIFO, tag), rs, inFFs);
       // rules for branch recipes //
       //////////////////////////////
-      Rules allbranchRules = fold(rJoinMutuallyExclusive, map(tpl_2, branches));
-      Rules dfltBranchRules = tpl_2(dflt);
-      Rules branchRules = rJoinMutuallyExclusive(allbranchRules, dfltBranchRules);
+      `DICT_T allbranchRules = concatWith(rJoinMutuallyExclusive, map(tpl_2, branches));
+      `DICT_T dfltBranchRules = tpl_2(dflt);
+      `DICT_T branchRules = mergeWith(rJoinMutuallyExclusive, allbranchRules, dfltBranchRules);
       // rules for branch triggering //
       /////////////////////////////////
-      Rules triggerRules = rules rule triggerOneMatch;
+      `DICT_T triggerRules = dict(tag, rules rule triggerOneMatch;
         goFF.deq();
         // trigger first matching branch, or default branch otherwise
         case(find(tpl_1, zip(gs, inFFs))) matches
           tagged Valid {.guard, .ff}: ff.enq(?);
           tagged Invalid: dfltFF.enq(?);
         endcase
-      endrule endrules;
+      endrule endrules);
       // rules to gather each branch //
       /////////////////////////////////
       function Rules gatherRule(FIFO#(x) ff) = rules
@@ -384,14 +393,20 @@ module [Module] innerCompile#(Recipe r, FlowFF goFF, FlowFF doneFF) (Rules);
       Rules dfltGatherRules = rules
         rule gatherDfltOneMatch; tpl_1(dflt).deq(); done.send(); endrule
       endrules;
-      Rules gatherRules = rJoinMutuallyExclusive(allGatherRules, dfltGatherRules);
+      `DICT_T gatherRules = dict(tag, rJoinMutuallyExclusive(allGatherRules, dfltGatherRules));
       // rules to generate final done signal //
       /////////////////////////////////////////
-      Rules finalRules = rules
+      `DICT_T finalRules = dict(tag, rules
         rule finalOneMatch (done); doneFF.enq(?); endrule
-      endrules;
+      endrules);
       // compose all rules and return
-      return rJoinExecutionOrder(triggerRules, rJoinExecutionOrder(branchRules, rJoinExecutionOrder(gatherRules, finalRules)));
+      return concatWith(rJoinExecutionOrder, list(triggerRules, branchRules, gatherRules, finalRules));
+    end
+    // Tag recipe
+    ////////////////////////////////////////////////////////////////////////////
+    tagged RTag {.tag, .recipe}: begin
+      let d <- innerCompile(tag, recipe, goFF, doneFF);
+      return d;
     end
   endcase
 endmodule
