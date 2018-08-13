@@ -293,7 +293,7 @@ module [Module] innerCompile#(String tag, Recipe r, FlowFF goFF, FlowFF doneFF) 
           goFF.deq();
           busy[0] <= True;
         endrule
-        rule readCondWhile (cond);
+        rule readCondWhile (cond && busy[1]);
           //$display("%0t -- readCondWhile", $time);
           condValid.send();
         endrule

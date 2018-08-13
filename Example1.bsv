@@ -67,7 +67,13 @@ module top ();
     $display("%0t -- D", $time),
     $display("%0t -- E", $time),
     $display("%0t -- F", $time),
-    rIfElse((cnt < 50), rAct($display("%0t -- G if", $time)), rAct($display("%0t -- G else", $time))),
+    rIfElse((cnt >= 50),
+      rAct($display("%0t -- G if", $time)),
+      rSeq(rBlock(
+        rAct($display("%0t -- G else 1", $time)),
+        rAct($display("%0t -- G else 2", $time))
+      ))
+    ),
     $display("%0t -- H", $time)
   ));
   Recipe r3 = rPar(rBlock(
@@ -164,7 +170,13 @@ module top ();
       delay.deq();
     endaction),
     $display("%0t -- F", $time),
-    rIfElse((cnt < 50), rAct($display("%0t -- G if", $time)), rAct($display("%0t -- G else", $time))),
+    rIfElse((cnt >= 50),
+      rAct($display("%0t -- G if", $time)),
+      rFastSeq(rBlock(
+        rAct($display("%0t -- G else 1", $time)),
+        rAct($display("%0t -- G else 2", $time))
+      ))
+    ),
     $display("%0t -- H", $time)
   ));
   Recipe r12 = rSeq(rBlock(
@@ -294,10 +306,41 @@ module top ();
   rAct(action $display("%0t -- No recipe matched...", $time); endaction)),
   action cnt <= cnt + 1; $display("%0t -- iteration %0d done", $time, cnt); endaction
   )));
+  Reg#(Bool) isReset <- mkReg(True);
+  Reg#(Bit#(6)) doTheCount <- mkReg(0);
+  Recipe r21 = rIfElse(isReset,
+    rAct(action isReset <= False; $display("%0t -- done reset", $time); endaction),
+    rWhile(doTheCount < 32, rSeq(rBlock(
+      action $display("%0t -- will do the count soon...", $time); endaction,
+      action doTheCount <= doTheCount + 1; $display("%0t -- counted up from %0d...", $time, doTheCount); endaction
+    )))
+  );
+  Recipe r22 = rSeq(rBlock(
+    rAct(action
+      $display("%0t -- first step ...", $time);
+      // clear reset after first cycle
+      isReset <= False;
+    endaction),
+    rWhile(True, rFastSeq(rBlock(
+      action $display("%0t -- inner step A", $time); endaction,
+      action $display("%0t -- inner step B", $time); endaction
+    )))
+  ));
+  Recipe r23 = rSeq(rBlock(
+    rAct(action
+      $display("%0t -- first step ...", $time);
+      // clear reset after first cycle
+      isReset <= False;
+    endaction),
+    rFastSeq(rBlock(
+      action $display("%0t -- inner step A", $time); endaction,
+      action $display("%0t -- inner step B", $time); endaction
+    ))
+  ));
 
   // Compile one of the recipes
   //let m <- compile(r0);
-  let m <- compile(r1);
+  //let m <- compile(r1);
   //let m <- compile(r2);
   //let m <- compile(r3);
   //let m <- compile(r4);
@@ -317,6 +360,9 @@ module top ();
   //let m <- compile(r18);
   //let m <- compile(r19);
   //let m <- compile(r20);
+  let m <- compile(r21);
+  //let m <- compile(r22);
+  //let m <- compile(r23);
 
   // Start runing the recipe
 	rule run; m.start(); endrule
