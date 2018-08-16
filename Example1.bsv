@@ -30,6 +30,7 @@
 import Recipe :: *;
 import FIFO :: *;
 import SpecialFIFOs :: *;
+import List :: *;
 
 // Example use of Recipe
 module top ();
@@ -337,6 +338,27 @@ module top ();
       action $display("%0t -- inner step B", $time); endaction
     ))
   ));
+  Recipe r24 = rWhile(True, rFastSeq(rBlock(
+  action $display("%0t -- pre check", $time); endaction,
+  rOneMatch(
+    // list of 3 bools
+    cons(False,
+    cons(False,
+    cons(True,
+    Nil))),
+    // list of 3 recipes
+    map(rMutExGroup("otherGroup"), cons(rAct(action $display("%0t -- A", $time); endaction),
+    cons(rAct(action $display("%0t -- B", $time); endaction),
+    cons(rSeq(rBlock(
+      action $display("%0t -- C (1)", $time); endaction,
+      action $display("%0t -- C (2)", $time); endaction,
+      action $display("%0t -- C (3)", $time); endaction
+      )),
+    Nil)))),
+    // fallback recipe
+    rAct(action $display("%0t -- No recipe matched...", $time); endaction)),
+  action $display("%0t -- post check", $time); endaction
+  )));
 
   // Compile one of the recipes
   //let m <- compile(r0);
@@ -360,14 +382,15 @@ module top ();
   //let m <- compile(r18);
   //let m <- compile(r19);
   //let m <- compile(r20);
-  let m <- compile(r21);
+  //let m <- compile(r21);
   //let m <- compile(r22);
   //let m <- compile(r23);
+  let m <- compile(r24);
 
   // Start runing the recipe
-	rule run; m.start(); endrule
+  rule run; m.start(); endrule
 
   // On the recipe's last cyle, terminate simulation
-	rule endSim (m.isLastCycle); $finish(0); endrule
+  rule endSim (m.isLastCycle); $finish(0); endrule
 
 endmodule
