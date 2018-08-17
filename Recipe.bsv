@@ -48,7 +48,6 @@ export rSeq;
 export rPar;
 export rAllGuard;
 export rOneMatch;
-export rOneMatchDelay;
 export rIfElse;
 export rWhen;
 export rWhile;
@@ -122,7 +121,6 @@ function Recipe rPar(List#(Recipe) rs) = RPar(tuple2(mkBypassFIFO, rs));
 function Recipe rAllGuard(List#(Bool) gs, List#(Recipe) rs) = rPar(zipWith(rWhen, gs, rs));
 // First recipe with that matches happens, otherwise fall-through recipe
 function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatch(tuple5(mkBypassFIFO, gs, rs, mkBypassFIFO, r));
-function Recipe rOneMatchDelay(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatch(tuple5(mkFIFO1, gs, rs, mkBypassFIFO, r));
 // Add recipe to a mutex group
 function Recipe rMutExGroup(String s, Recipe r) = RMutexGroup(tuple2(s, r));
 
