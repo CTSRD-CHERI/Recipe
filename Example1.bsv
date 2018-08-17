@@ -32,7 +32,7 @@ import SpecialFIFOs :: *;
 import List :: *;
 
 import Recipe :: *;
-`include "RecipeMacros.bsv"
+#include "RecipeMacros.h"
 
 // Example use of Recipe
 module top ();
@@ -48,45 +48,46 @@ module top ();
   FIFO#(Bit#(0)) nodelay <- mkBypassFIFO;
 
   // Defining various test recipes
-  Recipe r0 = `While(cnt < 50,
-    `Seq((
-       action
-         $display("%0t -- delaying, cnt = %0d", $time, cnt);
-         cnt <= cnt + 1;
-       endaction
-    ))
-  );
-  Recipe r1 = `Seq((
+  Recipe r0 = While (cnt < 50)
+    Seq
+      action
+        $display("%0t -- delaying, cnt = %0d", $time, cnt);
+        cnt <= cnt + 1;
+      endaction
+    End
+  End;
+  Recipe r1 = Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
     $display("%0t -- D", $time),
-    `FastSeq((
+    FastSeq
       $display("%0t -- E", $time),
       $display("%0t -- F", $time),
       $display("%0t -- G", $time),
       $display("%0t -- H", $time)
-    ))
-  ));
-  Recipe r2 = `Seq((
+    End
+  End;
+  Recipe r2 = Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
     $display("%0t -- D", $time),
     $display("%0t -- E", $time),
     $display("%0t -- F", $time),
-    `If(cnt >= 50,
-      `Seq((
-         $display("%0t -- G if", $time)
-      )),
-      `Seq((
+    If (cnt >= 50)
+      Seq
+        $display("%0t -- G if", $time)
+      End
+    Else
+      Seq
         $display("%0t -- G else 1", $time),
         $display("%0t -- G else 2", $time)
-      ))
-    ),
+      End
+    End,
     $display("%0t -- H", $time)
-  ));
-  Recipe r3 = `Par((
+  End;
+  Recipe r3 = Par
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
@@ -95,61 +96,61 @@ module top ();
     $display("%0t -- F", $time),
     $display("%0t -- G", $time),
     $display("%0t -- H", $time)
-  ));
-  Recipe r4 = `Par((
+  End;
+  Recipe r4 = Par
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
-    `While(cnt < 50,
-      `Seq((
+    While (cnt < 50)
+      Seq
         action
           $display("%0t -- delaying, cnt = %0d", $time, cnt);
           cnt <= cnt + 1;
         endaction
-      ))
-    ),
+      End
+    End,
     $display("%0t -- C", $time)
-  ));
-  Recipe r5 = `Seq((
+  End;
+  Recipe r5 = Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
-    `While(cnt < 50,
-      `Seq((
+    While (cnt < 50)
+      Seq
         action
           $display("%0t -- delaying, cnt = %0d", $time, cnt);
           cnt <= cnt + 1;
         endaction
-      ))
-    ),
+      End
+    End,
     $display("%0t -- C", $time)
-  ));
-  Recipe r6 = `While(runningCnt < 50,
-    `Par((
+  End;
+  Recipe r6 = While (runningCnt < 50)
+    Par
       $display("%t -- A, runningCnt = %0d", $time, runningCnt),
       $display("%t -- B, runningCnt = %0d", $time, runningCnt)
-    ))
-  );
-  Recipe r7 = `While(cnt < 50,
-    `Par((
+    End
+  End;
+  Recipe r7 = While (cnt < 50)
+    Par
       $display("%t -- A, runningCnt = %0d", $time, runningCnt),
       $display("%t -- B, runningCnt = %0d", $time, runningCnt),
       action cnt <= cnt + 1; endaction
-    ))
-  );
-  Recipe r8 = `Seq((
-    `Par((
+    End
+  End;
+  Recipe r8 = Seq
+    Par
       $display("1a %t", $time),
       $display("1b %t", $time)
-    )),
+    End,
     $display("2 %t", $time),
-    `While(cnt < 50,
-      `Par((
+    While (cnt < 50)
+      Par
         $display("delaying %t", $time),
         action cnt <= cnt + 1; endaction
-      ))
-    ),
+      End
+    End,
     $display("3 %t", $time)
-  ));
-  Recipe r9 = `Seq((
+  End;
+  Recipe r9 = Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -162,16 +163,17 @@ module top ();
       delay.deq();
     endaction,
     $display("%0t -- F", $time),
-    `If(cnt < 50,
-       `Seq((
-          $display("%0t -- G if", $time)
-        )),
-       `Seq((
-          $display("%0t -- G else", $time)
-       ))
-    ),
+    If (cnt < 50)
+      Seq
+        $display("%0t -- G if", $time)
+      End
+    Else
+      Seq
+        $display("%0t -- G else", $time)
+      End
+    End,
     $display("%0t -- H", $time)
-  ));
+  End;
   Recipe r10 = rPar(rBlock(
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
