@@ -41,7 +41,7 @@ all: $(patsubst Example%.bsv, example%, $(wildcard Example*.bsv))
 
 example%: Example%.bsv Recipe.bsv
 	mkdir -p bdir simdir info-dir
-	$(BSC) $(BSCFLAGS) -u -sim -g top $<
+	$(BSC) -cpp $(BSCFLAGS) -u -sim -g top $<
 	$(BSC) $(BSCFLAGS) -sim -e top -o $@
 	dot -Tsvg info-dir/top_exec.dot > info-dir/top_exec.svg
 	dot -Tsvg info-dir/top_urgency.dot > info-dir/top_urgency.svg
