@@ -27,10 +27,12 @@
  * @BERI_LICENSE_HEADER_END@
  */
 
-import Recipe :: *;
 import FIFO :: *;
 import SpecialFIFOs :: *;
 import List :: *;
+
+import Recipe :: *;
+`include "RecipeMacros.bsv"
 
 // Example use of Recipe
 module top ();
@@ -38,46 +40,53 @@ module top ();
   // Defining some counters and fifos
   Reg#(UInt#(8)) cnt <- mkReg(0);
   Reg#(UInt#(8)) runningCnt <- mkReg(0);
-	rule everyCycle;
-		runningCnt <= runningCnt + 1;
-	endrule
+  rule everyCycle;
+    runningCnt <= runningCnt + 1;
+  endrule
   //FIFO#(Bit#(0)) delay <- mkPipelineFIFO;
   FIFO#(Bit#(0)) delay <- mkFIFO1;
   FIFO#(Bit#(0)) nodelay <- mkBypassFIFO;
 
   // Defining various test recipes
-  Recipe r0 = rWhile((cnt < 50), rAct(action
-    $display("%0t -- delaying, cnt = %0d", $time, cnt);
-    cnt <= cnt + 1;
-  endaction));
-  Recipe r1 = rSeq(rBlock(
+  Recipe r0 = `While(cnt < 50,
+    `Seq((
+       action
+         $display("%0t -- delaying, cnt = %0d", $time, cnt);
+         cnt <= cnt + 1;
+       endaction
+    ))
+  );
+  Recipe r1 = `Seq((
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
     $display("%0t -- D", $time),
-    rFastSeq(rBlock(
-    $display("%0t -- E", $time),
-    $display("%0t -- F", $time),
-    $display("%0t -- G", $time),
-    $display("%0t -- H", $time)))
+    `FastSeq((
+      $display("%0t -- E", $time),
+      $display("%0t -- F", $time),
+      $display("%0t -- G", $time),
+      $display("%0t -- H", $time)
+    ))
   ));
-  Recipe r2 = rSeq(rBlock(
+  Recipe r2 = `Seq((
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
     $display("%0t -- D", $time),
     $display("%0t -- E", $time),
     $display("%0t -- F", $time),
-    rIfElse((cnt >= 50),
-      rAct($display("%0t -- G if", $time)),
-      rSeq(rBlock(
-        rAct($display("%0t -- G else 1", $time)),
-        rAct($display("%0t -- G else 2", $time))
+    `If(cnt >= 50,
+      `Seq((
+         $display("%0t -- G if", $time)
+      )),
+      `Seq((
+        $display("%0t -- G else 1", $time),
+        $display("%0t -- G else 2", $time)
       ))
     ),
     $display("%0t -- H", $time)
   ));
-  Recipe r3 = rPar(rBlock(
+  Recipe r3 = `Par((
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
@@ -87,59 +96,80 @@ module top ();
     $display("%0t -- G", $time),
     $display("%0t -- H", $time)
   ));
-  Recipe r4 = rPar(rBlock(
+  Recipe r4 = `Par((
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
-    rWhile((cnt < 50), rAct(action
-      $display("%0t -- delaying, cnt = %0d", $time, cnt);
-      cnt <= cnt + 1;
-    endaction)),
+    `While(cnt < 50,
+      `Seq((
+        action
+          $display("%0t -- delaying, cnt = %0d", $time, cnt);
+          cnt <= cnt + 1;
+        endaction
+      ))
+    ),
     $display("%0t -- C", $time)
   ));
-  Recipe r5 = rSeq(rBlock(
+  Recipe r5 = `Seq((
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
-    rWhile((cnt < 50), rAct(action
-      $display("%0t -- delaying, cnt = %0d", $time, cnt);
-      cnt <= cnt + 1;
-    endaction)),
+    `While(cnt < 50,
+      `Seq((
+        action
+          $display("%0t -- delaying, cnt = %0d", $time, cnt);
+          cnt <= cnt + 1;
+        endaction
+      ))
+    ),
     $display("%0t -- C", $time)
   ));
-  Recipe r6 = rWhile((runningCnt < 50), rPar(rBlock(
-		$display("%t -- A, runningCnt = %0d", $time, runningCnt),
-		$display("%t -- B, runningCnt = %0d", $time, runningCnt)
-	)));
-  Recipe r7 = rWhile((cnt < 50), rPar(rBlock(
-		$display("%t -- A, runningCnt = %0d", $time, runningCnt),
-		$display("%t -- B, runningCnt = %0d", $time, runningCnt),
-		action cnt <= cnt + 1; endaction
-	)));
-  Recipe r8 = rSeq(rBlock(
-    rPar(rBlock(
+  Recipe r6 = `While(runningCnt < 50,
+    `Par((
+      $display("%t -- A, runningCnt = %0d", $time, runningCnt),
+      $display("%t -- B, runningCnt = %0d", $time, runningCnt)
+    ))
+  );
+  Recipe r7 = `While(cnt < 50,
+    `Par((
+      $display("%t -- A, runningCnt = %0d", $time, runningCnt),
+      $display("%t -- B, runningCnt = %0d", $time, runningCnt),
+      action cnt <= cnt + 1; endaction
+    ))
+  );
+  Recipe r8 = `Seq((
+    `Par((
       $display("1a %t", $time),
       $display("1b %t", $time)
     )),
     $display("2 %t", $time),
-    rWhile((cnt < 50), rPar(rBlock(
-      $display("delaying %t", $time),
-      action cnt <= cnt + 1; endaction
-    ))),
+    `While(cnt < 50,
+      `Par((
+        $display("delaying %t", $time),
+        action cnt <= cnt + 1; endaction
+      ))
+    ),
     $display("3 %t", $time)
   ));
-  Recipe r9 = rSeq(rBlock(
+  Recipe r9 = `Seq((
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
-    rAct(action
+    action
       $display("%0t -- C (delay.enq)", $time);
       delay.enq(?);
-    endaction),
+    endaction,
     $display("%0t -- D", $time),
-    rAct(action
+    action
       $display("%0t -- E (delay.deq)", $time);
       delay.deq();
-    endaction),
+    endaction,
     $display("%0t -- F", $time),
-    rIfElse((cnt < 50), rAct($display("%0t -- G if", $time)), rAct($display("%0t -- G else", $time))),
+    `If(cnt < 50,
+       `Seq((
+          $display("%0t -- G if", $time)
+        )),
+       `Seq((
+          $display("%0t -- G else", $time)
+       ))
+    ),
     $display("%0t -- H", $time)
   ));
   Recipe r10 = rPar(rBlock(
