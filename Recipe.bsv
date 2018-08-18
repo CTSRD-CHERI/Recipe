@@ -54,6 +54,7 @@ export rWhile;
 export rMutExGroup;
 export rBlock;
 export RecipeBlock;
+export ToRecipe(..);
 export RecipeFSM(..);
 export compile;
 export compileMutuallyExclusive;
@@ -97,6 +98,21 @@ endinstance
 function a rBlock() provisos (RecipeBlock#(a));
   return mkRecipe(Nil);
 endfunction
+
+// Class for converting types to a Recipe
+typeclass ToRecipe#(type a);
+  function Recipe toRecipe(a x);
+endtypeclass
+
+// Lift Action to Recipe
+instance ToRecipe#(Action);
+  function Recipe toRecipe(Action x) = rAct(x);
+endinstance
+
+// Lift Recipe to Recipe
+instance ToRecipe#(Recipe);
+  function Recipe toRecipe(Recipe x) = x;
+endinstance
 
 // Basic Action recipe
 function Recipe rAct(Action a) = RAct(a);

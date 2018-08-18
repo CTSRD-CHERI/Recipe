@@ -4,9 +4,9 @@
 #define Seq rSeq(rBlock(
 #define Par rPar(rBlock(
 #define FastSeq rFastSeq(rBlock(
-#define If(a) rIfElse(a,(
-#define Else ),(
-#define While(a) rWhile(a, (
+#define If(a) rIfElse(a,toRecipe(
+#define Else ),toRecipe(
+#define While(a) rWhile(a,toRecipe(
 #define End ))
 
 #endif

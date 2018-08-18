@@ -49,12 +49,10 @@ module top ();
 
   // Defining various test recipes
   Recipe r0 = While (cnt < 50)
-    Seq
-      action
-        $display("%0t -- delaying, cnt = %0d", $time, cnt);
-        cnt <= cnt + 1;
-      endaction
-    End
+    action
+      $display("%0t -- delaying, cnt = %0d", $time, cnt);
+      cnt <= cnt + 1;
+    endaction
   End;
   Recipe r1 = Seq
     $display("%0t -- A", $time),
@@ -76,9 +74,7 @@ module top ();
     $display("%0t -- E", $time),
     $display("%0t -- F", $time),
     If (cnt >= 50)
-      Seq
-        $display("%0t -- G if", $time)
-      End
+      $display("%0t -- G if", $time)
     Else
       Seq
         $display("%0t -- G else 1", $time),
@@ -101,12 +97,10 @@ module top ();
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     While (cnt < 50)
-      Seq
-        action
-          $display("%0t -- delaying, cnt = %0d", $time, cnt);
-          cnt <= cnt + 1;
-        endaction
-      End
+      action
+        $display("%0t -- delaying, cnt = %0d", $time, cnt);
+        cnt <= cnt + 1;
+      endaction
     End,
     $display("%0t -- C", $time)
   End;
@@ -114,12 +108,10 @@ module top ();
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     While (cnt < 50)
-      Seq
-        action
-          $display("%0t -- delaying, cnt = %0d", $time, cnt);
-          cnt <= cnt + 1;
-        endaction
-      End
+      action
+        $display("%0t -- delaying, cnt = %0d", $time, cnt);
+        cnt <= cnt + 1;
+      endaction
     End,
     $display("%0t -- C", $time)
   End;
@@ -164,32 +156,32 @@ module top ();
     endaction,
     $display("%0t -- F", $time),
     If (cnt < 50)
-      Seq
-        $display("%0t -- G if", $time)
-      End
+      $display("%0t -- G if", $time)
     Else
-      Seq
-        $display("%0t -- G else", $time)
-      End
+      $display("%0t -- G else", $time)
     End,
     $display("%0t -- H", $time)
   End;
-  Recipe r10 = rPar(rBlock(
+  Recipe r10 = Par
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
-    rAct(action
+    action
       $display("%0t -- C (delay.enq)", $time);
       delay.enq(?);
-    endaction),
+    endaction,
     $display("%0t -- D", $time),
-    rAct(action
+    action
       $display("%0t -- E (delay.deq)", $time);
       delay.deq();
-    endaction),
+    endaction,
     $display("%0t -- F", $time),
-    rIfElse((cnt < 50), rAct($display("%0t -- G if", $time)), rAct($display("%0t -- G else", $time))),
+    If (cnt < 50)
+      $display("%0t -- G if", $time)
+    Else
+      $display("%0t -- G else", $time)
+    End,
     $display("%0t -- H", $time)
-  ));
+  End;
   Recipe r11 = rFastSeq(rBlock(
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
