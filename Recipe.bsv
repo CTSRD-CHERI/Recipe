@@ -140,16 +140,6 @@ function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatc
 // Add recipe to a mutex group
 function Recipe rMutExGroup(String s, Recipe r) = RMutexGroup(tuple2(s, r));
 
-/* TODO proprocessor macros to apply rBlock implicitly
-#define rAct(a) RAct(a)
-#define rActV(a) RActV(a)
-#define rPar(...) RPar(rBlock(__VA_ARGS__))
-#define rSeq(...) RSeq(rBlock(__VA_ARGS__))
-#define rIfElse(a, b, c) RIfElse(tuple3(a, b, c))
-#define rWhile(a, b) RWhile(tuple2(a, b))
-...
-*/
-
 // Recipe compiler front modules
 ////////////////////////////////////////////////////////////////////////////////
 
