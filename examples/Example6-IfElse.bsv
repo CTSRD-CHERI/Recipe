@@ -28,22 +28,22 @@
  */
 
 import Recipe :: *;
-#include "RecipeMacros.h"
+`include "RecipeMacros.inc"
 
 module top ();
 
   Reg#(Bit#(8)) cnt <- mkReg(0);
 
-  Recipe r = While (cnt < 10)
-    Par
-      If (cnt[0] == 0)
+  Recipe r = `While(cnt < 10)
+    `Par
+      `If(cnt[0] == 0)
         $display("%0t -- even tick %0d", $time, cnt)
-      Else
+      `Else
         $display("%0t -- odd tick %0d", $time, cnt)
-      End,
+      `End,
       action cnt <= cnt + 1; endaction
-    End
-  End;
+    `End
+  `End;
 
   RecipeFSM m <- compile(r);
 

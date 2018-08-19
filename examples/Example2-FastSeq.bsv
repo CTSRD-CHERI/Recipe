@@ -28,7 +28,7 @@
  */
 
 import Recipe :: *;
-#include "RecipeMacros.h"
+`include "RecipeMacros.inc"
 
 import FIFO :: *;
 
@@ -36,7 +36,7 @@ module top ();
 
   FIFO#(Bit#(0)) delay <- mkFIFO1;
 
-  Recipe r = FastSeq
+  Recipe r = `FastSeq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -51,7 +51,7 @@ module top ();
     endaction,
     $display("%0t -- G", $time),
     $display("%0t -- H", $time)
-  End;
+  `End;
 
   RecipeFSM m <- compile(r);
 

@@ -65,7 +65,8 @@ all: $(EXAMPLES)
 
 simExample%: $(EXAMPLESDIR)/Example%.bsv Recipe.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR) $(OUTPUTDIR)
-	$(BSC) -cpp -Xcpp -I. -info-dir $(OUTPUTDIR)/$@-info $(BSCFLAGS) -sim -g top -u $<
+	#$(BSC) -cpp -Xcpp -I. -info-dir $(OUTPUTDIR)/$@-info $(BSCFLAGS) -sim -g top -u $<
+	$(BSC) -info-dir $(OUTPUTDIR)/$@-info $(BSCFLAGS) -sim -g top -u $<
 	CC=$(CC) CXX=$(CXX) $(BSC) $(BSCFLAGS) -sim -e top -o $(OUTPUTDIR)/$@
 
 .PHONY: clean mrproper

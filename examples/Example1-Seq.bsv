@@ -28,11 +28,11 @@
  */
 
 import Recipe :: *;
-#include "RecipeMacros.h"
+`include "RecipeMacros.inc"
 
 module top ();
 
-  Recipe r = Seq
+  Recipe r = `Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
@@ -41,7 +41,7 @@ module top ();
     $display("%0t -- F", $time),
     $display("%0t -- G", $time),
     $display("%0t -- H", $time)
-  End;
+  `End;
 
   RecipeFSM m <- compile(r);
 

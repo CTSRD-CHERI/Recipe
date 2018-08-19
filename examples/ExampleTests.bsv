@@ -32,7 +32,7 @@ import SpecialFIFOs :: *;
 import List :: *;
 
 import Recipe :: *;
-#include "RecipeMacros.h"
+`include "RecipeMacros.inc"
 
 // Example use of Recipe
 module top ();
@@ -48,42 +48,42 @@ module top ();
   FIFO#(Bit#(0)) nodelay <- mkBypassFIFO;
 
   // Defining various test recipes
-  Recipe r0 = While (cnt < 50)
+  Recipe r0 = `While(cnt < 50)
     action
       $display("%0t -- delaying, cnt = %0d", $time, cnt);
       cnt <= cnt + 1;
     endaction
-  End;
-  Recipe r1 = Seq
+  `End;
+  Recipe r1 = `Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
     $display("%0t -- D", $time),
-    FastSeq
+    `FastSeq
       $display("%0t -- E", $time),
       $display("%0t -- F", $time),
       $display("%0t -- G", $time),
       $display("%0t -- H", $time)
-    End
-  End;
-  Recipe r2 = Seq
+    `End
+  `End;
+  Recipe r2 = `Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
     $display("%0t -- D", $time),
     $display("%0t -- E", $time),
     $display("%0t -- F", $time),
-    If (cnt >= 50)
+    `If(cnt >= 50)
       $display("%0t -- G if", $time)
-    Else
-      Seq
+    `Else
+      `Seq
         $display("%0t -- G else 1", $time),
         $display("%0t -- G else 2", $time)
-      End
-    End,
+      `End
+    `End,
     $display("%0t -- H", $time)
-  End;
-  Recipe r3 = Par
+  `End;
+  Recipe r3 = `Par
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     $display("%0t -- C", $time),
@@ -92,57 +92,57 @@ module top ();
     $display("%0t -- F", $time),
     $display("%0t -- G", $time),
     $display("%0t -- H", $time)
-  End;
-  Recipe r4 = Par
+  `End;
+  Recipe r4 = `Par
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
-    While (cnt < 50)
+    `While(cnt < 50)
       action
         $display("%0t -- delaying, cnt = %0d", $time, cnt);
         cnt <= cnt + 1;
       endaction
-    End,
+    `End,
     $display("%0t -- C", $time)
-  End;
-  Recipe r5 = Seq
+  `End;
+  Recipe r5 = `Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
-    While (cnt < 50)
+    `While(cnt < 50)
       action
         $display("%0t -- delaying, cnt = %0d", $time, cnt);
         cnt <= cnt + 1;
       endaction
-    End,
+    `End,
     $display("%0t -- C", $time)
-  End;
-  Recipe r6 = While (runningCnt < 50)
-    Par
+  `End;
+  Recipe r6 = `While(runningCnt < 50)
+    `Par
       $display("%t -- A, runningCnt = %0d", $time, runningCnt),
       $display("%t -- B, runningCnt = %0d", $time, runningCnt)
-    End
-  End;
-  Recipe r7 = While (cnt < 50)
-    Par
+    `End
+  `End;
+  Recipe r7 = `While(cnt < 50)
+    `Par
       $display("%t -- A, runningCnt = %0d", $time, runningCnt),
       $display("%t -- B, runningCnt = %0d", $time, runningCnt),
       action cnt <= cnt + 1; endaction
-    End
-  End;
-  Recipe r8 = Seq
-    Par
+    `End
+  `End;
+  Recipe r8 = `Seq
+    `Par
       $display("1a %t", $time),
       $display("1b %t", $time)
-    End,
+    `End,
     $display("2 %t", $time),
-    While (cnt < 50)
-      Par
+    `While(cnt < 50)
+      `Par
         $display("delaying %t", $time),
         action cnt <= cnt + 1; endaction
-      End
-    End,
+      `End
+    `End,
     $display("3 %t", $time)
-  End;
-  Recipe r9 = Seq
+  `End;
+  Recipe r9 = `Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -155,14 +155,14 @@ module top ();
       delay.deq();
     endaction,
     $display("%0t -- F", $time),
-    If (cnt < 50)
+    `If(cnt < 50)
       $display("%0t -- G if", $time)
-    Else
+    `Else
       $display("%0t -- G else", $time)
-    End,
+    `End,
     $display("%0t -- H", $time)
-  End;
-  Recipe r10 = Par
+  `End;
+  Recipe r10 = `Par
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -175,14 +175,14 @@ module top ();
       delay.deq();
     endaction,
     $display("%0t -- F", $time),
-    If (cnt < 50)
+    `If(cnt < 50)
       $display("%0t -- G if", $time)
-    Else
+    `Else
       $display("%0t -- G else", $time)
-    End,
+    `End,
     $display("%0t -- H", $time)
-  End;
-  Recipe r11 = FastSeq
+  `End;
+  Recipe r11 = `FastSeq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -195,17 +195,17 @@ module top ();
       delay.deq();
     endaction,
     $display("%0t -- F", $time),
-    If (cnt >= 50)
+    `If(cnt >= 50)
       $display("%0t -- G if", $time)
-    Else
-      FastSeq
+    `Else
+      `FastSeq
         $display("%0t -- G else 1", $time),
         $display("%0t -- G else 2", $time)
-      End
-    End,
+      `End
+    `End,
     $display("%0t -- H", $time)
-  End;
-  Recipe r12 = Seq
+  `End;
+  Recipe r12 = `Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -218,10 +218,10 @@ module top ();
       nodelay.deq();
     endaction,
     $display("%0t -- F", $time),
-    If (cnt < 50) $display("%0t -- G if", $time) Else $display("%0t -- G else", $time) End,
+    `If(cnt < 50) $display("%0t -- G if", $time) `Else $display("%0t -- G else", $time) `End,
     $display("%0t -- H", $time)
-  End;
-  Recipe r13 = Par
+  `End;
+  Recipe r13 = `Par
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -234,10 +234,10 @@ module top ();
       nodelay.deq();
     endaction,
     $display("%0t -- F", $time),
-    If (cnt < 50) $display("%0t -- G if", $time) Else $display("%0t -- G else", $time) End,
+    `If(cnt < 50) $display("%0t -- G if", $time) `Else $display("%0t -- G else", $time) `End,
     $display("%0t -- H", $time)
-  End;
-  Recipe r14 = FastSeq
+  `End;
+  Recipe r14 = `FastSeq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -250,10 +250,10 @@ module top ();
       nodelay.deq();
     endaction,
     $display("%0t -- F", $time),
-    If (cnt < 50) $display("%0t -- G if", $time) Else $display("%0t -- G else", $time) End,
+    `If(cnt < 50) $display("%0t -- G if", $time) `Else $display("%0t -- G else", $time) `End,
     $display("%0t -- H", $time)
-  End;
-  Recipe r15 = While (cnt < 10) Par
+  `End;
+  Recipe r15 = `While(cnt < 10) `Par
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -267,12 +267,12 @@ module top ();
     endaction,
     $display("%0t -- F", $time),
     action cnt <= cnt + 1; endaction
-  End End;
-  Recipe r16 = FastSeq
+  `End `End;
+  Recipe r16 = `FastSeq
     $display("%0t -- A", $time),
-    When (cnt < 5) $display("%0t -- B", $time) End
-  End;
-  Recipe r17 = FastSeq
+    `When(cnt < 5) $display("%0t -- B", $time) `End
+  `End;
+  Recipe r17 = `FastSeq
     action
       $display("%0t -- A (enq)", $time);
       delay.enq(?);
@@ -281,8 +281,8 @@ module top ();
       $display("%0t -- B (deq)", $time);
       delay.deq();
     endaction
-  End;
-  Recipe r18 = While (cnt < 2) Par
+  `End;
+  Recipe r18 = `While(cnt < 2) `Par
     $display("%0t -- A", $time),
     action
       $display("%0t -- B (enq)", $time);
@@ -295,8 +295,8 @@ module top ();
     endaction,
     $display("%0t -- E", $time),
     action cnt <= cnt + 1; endaction
-  End End;
-  Recipe r19 = While (cnt < 10) FastSeq rAllGuard(
+  `End `End;
+  Recipe r19 = `While(cnt < 10) `FastSeq rAllGuard(
   // list of 3 bools
   cons(False,
   cons(True,
@@ -305,19 +305,19 @@ module top ();
   // list of 3 recipes
   cons(rAct(action $display("%0t -- A", $time); endaction),
   cons(rAct(action $display("%0t -- B", $time); endaction),
-  cons(Seq
+  cons(`Seq
     $display("%0t -- C (1)", $time),
     $display("%0t -- C (2)", $time),
     $display("%0t -- C (3)", $time)
-    End,
+    `End,
   Nil)))
   ),
   action
     cnt <= cnt + 1;
     $display("%0t -- iteration %0d done", $time, cnt);
   endaction
-  End End;
-  Recipe r20 = While (cnt < 10) FastSeq rOneMatch(
+  `End `End;
+  Recipe r20 = `While(cnt < 10) `FastSeq rOneMatch(
   // list of 3 bools
   cons(False,
   cons(True,
@@ -326,56 +326,56 @@ module top ();
   // list of 3 recipes
   cons(rAct(action $display("%0t -- A", $time); endaction),
   cons(rAct(action $display("%0t -- B", $time); endaction),
-  cons(Seq
+  cons(`Seq
     $display("%0t -- C (1)", $time),
     $display("%0t -- C (2)", $time),
     $display("%0t -- C (3)", $time)
-    End,
+    `End,
   Nil))),
   rAct(action $display("%0t -- No recipe matched...", $time); endaction)),
   action
     cnt <= cnt + 1;
     $display("%0t -- iteration %0d done", $time, cnt);
   endaction
-  End End;
+  `End `End;
   Reg#(Bool) isReset <- mkReg(True);
   Reg#(Bit#(6)) doTheCount <- mkReg(0);
-  Recipe r21 = If (isReset)
+  Recipe r21 = `If(isReset)
     action
       isReset <= False;
       $display("%0t -- done reset", $time);
     endaction
-    Else While (doTheCount < 32) Seq
+    `Else `While(doTheCount < 32) `Seq
       $display("%0t -- will do the count soon...", $time),
       action
         doTheCount <= doTheCount + 1;
         $display("%0t -- counted up from %0d...", $time, doTheCount);
       endaction
-    End End
-  End;
-  Recipe r22 = Seq
+    `End `End
+  `End;
+  Recipe r22 = `Seq
     action
       $display("%0t -- first step ...", $time);
       // clear reset after first cycle
       isReset <= False;
     endaction,
-    While(True) FastSeq
+    `While(True) `FastSeq
       $display("%0t -- inner step A", $time),
       $display("%0t -- inner step B", $time)
-    End End
-  End;
-  Recipe r23 = Seq
+    `End `End
+  `End;
+  Recipe r23 = `Seq
     rAct(action
       $display("%0t -- first step ...", $time);
       // clear reset after first cycle
       isReset <= False;
     endaction),
-    FastSeq
+    `FastSeq
       $display("%0t -- inner step A", $time),
       $display("%0t -- inner step B", $time)
-    End
-  End;
-  Recipe r24 = While (True) FastSeq
+    `End
+  `End;
+  Recipe r24 = `While(True) `FastSeq
   $display("%0t -- pre check", $time),
   rOneMatch(
     // list of 3 bools
@@ -386,16 +386,16 @@ module top ();
     // list of 3 recipes
     map(rMutExGroup("otherGroup"), cons(rAct(action $display("%0t -- A", $time); endaction),
     cons(rAct(action $display("%0t -- B", $time); endaction),
-    cons(Seq
+    cons(`Seq
       $display("%0t -- C (1)", $time),
       $display("%0t -- C (2)", $time),
       $display("%0t -- C (3)", $time)
-      End,
+      `End,
     Nil)))),
     // fallback recipe
     rAct(action $display("%0t -- No recipe matched...", $time); endaction)),
   $display("%0t -- post check", $time)
-  End End;
+  `End `End;
 
   // Compile one of the recipes
   //let m <- compile(r0);

@@ -28,18 +28,18 @@
  */
 
 import Recipe :: *;
-#include "RecipeMacros.h"
+`include "RecipeMacros.inc"
 
 module top ();
 
   Reg#(Bit#(8)) cnt <- mkReg(0);
 
-  Recipe r = While (cnt < 10)
+  Recipe r = `While(cnt < 10)
     action
       $display("%0t -- While iteration %0d", $time, cnt);
       cnt <= cnt + 1;
     endaction
-  End;
+  `End;
 
   RecipeFSM m <- compile(r);
 

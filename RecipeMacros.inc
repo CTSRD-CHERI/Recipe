@@ -27,16 +27,16 @@
  * @BERI_LICENSE_HEADER_END@
  */
 
-#ifndef _RECIPE_MACROS_H_
-#define _RECIPE_MACROS_H_
+`ifndef _RECIPE_MACROS_INC_
+`define _RECIPE_MACROS_INC_
 
-#define Seq rSeq(rBlock(
-#define Par rPar(rBlock(
-#define FastSeq rFastSeq(rBlock(
-#define If(a) rIfElse(a,toRecipe(
-#define Else ),toRecipe(
-#define When(a) rWhen(a,toRecipe(
-#define While(a) rWhile(a,toRecipe(
-#define End ))
+`define Seq rSeq(rBlock(
+`define Par rPar(rBlock(
+`define FastSeq rFastSeq(rBlock(
+`define If(a) rIfElse(a,toRecipe(
+`define Else ),toRecipe(
+`define When(a) rWhen(a,toRecipe(
+`define While(a) rWhile(a,toRecipe(
+`define End ))
 
-#endif
+`endif

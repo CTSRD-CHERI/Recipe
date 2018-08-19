@@ -8,7 +8,7 @@ Here is a BSV code sample showing how to define Recipe:
 
 ```bsv
 import Recipe :: *;
-#include "RecipeMacros.h"
+`include "RecipeMacros.inc"
 
 import FIFO :: *;
 
@@ -16,7 +16,7 @@ module top ();
 
   FIFO#(Bit#(0)) delay <- mkFIFO1;
 
-  Recipe r = FastSeq
+  Recipe r = `FastSeq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
     action
@@ -31,7 +31,7 @@ module top ();
     endaction,
     $display("%0t -- G", $time),
     $display("%0t -- H", $time)
-  End;
+  `End;
 
   RecipeFSM m <- compile(r);
 
@@ -146,11 +146,11 @@ Another way to control mutual exclusivity of the generated rules is to use the `
 To help define `Recipe`s in a concise and readable way, macros are provided that simplify the calls to common recipe constructors:
 
 ```bsv
-Seq
+`Seq
   $display("A"),
   $display("B"),
   $display("C")
-End
+`End
 ```
 
 is equivalent to
@@ -163,13 +163,11 @@ rSeq(rBlock(
 ))
 ```
 
-Similarly, macros are defined for `Par`, `FastSeq`, `If` and `Else`, `When` and `While`. Those are defined in [RecipeMacros.h](RecipeMacros.h), which must be included in your BSV sources as follows:
+Similarly, macros are defined for `` `Par ``, `` `FastSeq ``, `` `If `` and `` `Else ``, `` `When `` and `` `While ``. Those are defined in [RecipeMacros.inc](RecipeMacros.inc), which must be included in your BSV sources as follows:
 
 ```bsv
-#include "RecipeMacros.h"
+`include "RecipeMacros.inc"
 ```
-
-Additionally, the call to the BSV compiler should have the `-cpp` flag together with `-Xcpp -Ipath/to/Recipe` where `path/to/Recipe` is the path to the folder containing [RecipeMacros.h](RecipeMacros.h).
 
 ## Recipe constructors
 
