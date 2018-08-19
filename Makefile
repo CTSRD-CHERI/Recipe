@@ -32,24 +32,46 @@ BSC = bsc
 BLUEUTILSDIR = ./BlueBasics
 BSVPATH = +:$(BLUEUTILSDIR)
 
-BSCFLAGS = -p $(BSVPATH) -check-assert
-BSCFLAGS += -show-schedule -sched-dot
+BSCFLAGS = -p $(BSVPATH)
+
+# generated files directories
+BUILDDIR = build
+BDIR = $(BUILDDIR)/bdir
+SIMDIR = $(BUILDDIR)/simdir
+
+OUTPUTDIR = output
+
+BSCFLAGS += -bdir $(BDIR)
+BSCFLAGS += -simdir $(SIMDIR)
+
+BSCFLAGS += -show-schedule
+BSCFLAGS += -sched-dot
 BSCFLAGS += -show-range-conflict
-BSCFLAGS += -bdir bdir -simdir simdir -info-dir info-dir
+#BSCFLAGS += -show-rule-rel \* \*
+#BSCFLAGS += -steps-warn-interval n
 
-all: $(patsubst Example%.bsv, example%, $(wildcard Example*.bsv))
+# Bluespec is not compatible with gcc > 4.9
+# This is actually problematic when using $test$plusargs
+CC = gcc-4.8
+CXX = g++-4.8
 
-example%: Example%.bsv Recipe.bsv
-	mkdir -p bdir simdir info-dir
-	$(BSC) -cpp $(BSCFLAGS) -u -sim -g top $<
-	$(BSC) $(BSCFLAGS) -sim -e top -o $@
-	dot -Tsvg info-dir/top_exec.dot > info-dir/top_exec.svg
-	dot -Tsvg info-dir/top_urgency.dot > info-dir/top_urgency.svg
-	dot -Tsvg info-dir/top_combined.dot > info-dir/top_combined.svg
-	dot -Tsvg info-dir/top_conflict.dot > info-dir/top_conflict.svg
+EXAMPLESDIR = examples
+#EXAMPLES = $(patsubst Example%.bsv, example%, $(wildcard Example*.bsv))
+EXAMPLESSRC = $(notdir $(wildcard $(EXAMPLESDIR)/Example*.bsv))
+EXAMPLES = $(addprefix sim, $(basename $(EXAMPLESSRC)))
 
-.PHONY: clean
+
+all: $(EXAMPLES)
+
+simExample%: $(EXAMPLESDIR)/Example%.bsv Recipe.bsv
+	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR) $(OUTPUTDIR)
+	$(BSC) -cpp -Xcpp -I. -info-dir $(OUTPUTDIR)/$@-info $(BSCFLAGS) -sim -g top -u $<
+	CC=$(CC) CXX=$(CXX) $(BSC) $(BSCFLAGS) -sim -e top -o $(OUTPUTDIR)/$@
+
+.PHONY: clean mrproper
+
 clean:
-	rm -fr *example*
-	rm -fr bdir simdir info-dir
-	ls Recipe.* | grep -v Recipe.bsv | xargs rm -f
+	rm -fr $(BUILDDIR)
+
+mrproper: clean
+	rm -fr $(OUTPUTDIR)
