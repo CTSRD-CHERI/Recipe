@@ -1,6 +1,6 @@
 # Recipe
 
-A BSV libary providing a way to easily build state machines, similarly to the `Stmt` BSV sub-language.
+A BSV library providing a way to easily build state machines, similarly to the `Stmt` BSV sub-language.
 
 ## An example
 
@@ -92,7 +92,7 @@ typedef union tagged {
 
 The BSV type constructors can be found in [Recipe.bsv](Recipe.bsv), but they are not meant to be directly used and are therefore not exported by the package. Instead, a `Recipe` is built using a combination of recipe constructors (described in the [Recipe constructors](#recipe-constructors) section).
 
-To build a state machine from a `Recipe`, the library defines a `compile` module with the folowing type signature:
+To build a state machine from a `Recipe`, the library defines a `compile` module with the following type signature:
 
 ```bsv
 module [Module] compile#(Recipe r) (RecipeFSM);
@@ -170,6 +170,8 @@ Similarly, macros are defined for `Par`, `FastSeq`, `If` and `Else`, `When` and 
 ```
 
 Additionally, the call to the BSV compiler should have the `-cpp` flag together with `-Xcpp -Ipath/to/Recipe` where `path/to/Recipe` is the path to the folder containing [RecipeMacros.h](RecipeMacros.h).
+
+Alternatively, the [RecipeMacros.inc](RecipeMacros.inc) file defines the `` `Seq ``, `` `Par ``, `` `FastSeq ``, `` `If ``, `` `Else ``, `` `When `` and `` `While `` verilog preprocessor macros, and do not require any additional flag on the BSC compiler invocation.
 
 ## Recipe constructors
 
