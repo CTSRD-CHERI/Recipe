@@ -37,7 +37,10 @@ import GetPut :: *;
 import Connectable :: * ;
 import SpecialFIFOs :: *;
 
-import BlueBasics :: *;
+// non standard packages
+import Monoid :: *;
+import MkList :: *;
+import Dict :: *;
 
 // list of exported indentifiers
 export Recipe;
