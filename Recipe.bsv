@@ -31,7 +31,6 @@ package Recipe;
 
 // list of imported packages
 import Printf :: *;
-import List :: *;
 import FIFO :: *;
 import GetPut :: *;
 import Connectable :: * ;
@@ -39,7 +38,7 @@ import SpecialFIFOs :: *;
 
 // non standard packages
 import Monoid :: *;
-import MkList :: *;
+import ListExtra :: *;
 import Dict :: *;
 
 // list of exported indentifiers
@@ -212,8 +211,8 @@ module [Module] topCompile#(Recipe r) (Tuple2#(Rules, RecipeFSM));
   // compose the rules from the dictionary, respecting mutual exclusivity groups
   function isNormal(x) = !isValid(tpl_1(x));
   function  isMutEx(x) = isValid(tpl_1(x));
-  `DICT_T normalDict = filter(isNormal, compiledRules);
-  `DICT_T  mutExDict = filter(isMutEx, compiledRules);
+  `DICT_T normalDict = Dict::filter(isNormal, compiledRules);
+  `DICT_T  mutExDict = Dict::filter(isMutEx, compiledRules);
 
   Rules normalRules = foldl(rJoin, emptyRules, values(normalDict));
   Rules  mutExRules = foldl(rJoinMutuallyExclusive, emptyRules, values(mutExDict));
