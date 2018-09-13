@@ -110,6 +110,7 @@ The `RecipeFSM` interface is defined as follows:
 
 ```bsv
 interface RecipeFSM;
+  method Bool canStart();
   method Action start();
   method Bool isLastCycle();
   method Bool isDone();
@@ -118,6 +119,7 @@ endinterface
 ```
 
 As their names suggest,
+* the `canStart` method returns `True` if the machine can be started
 * the `start` method starts the machine
 * the `isLastCycle` method returns `True` if the cycle is the last one before the machine is done
 * the `isDone` method returns `True` if the machine is done

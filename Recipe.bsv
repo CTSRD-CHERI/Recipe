@@ -32,6 +32,7 @@ package Recipe;
 // list of imported packages
 import Printf :: *;
 import FIFO :: *;
+import FIFOF :: *;
 import GetPut :: *;
 import Connectable :: * ;
 import SpecialFIFOs :: *;
@@ -40,6 +41,8 @@ import SpecialFIFOs :: *;
 import Monoid :: *;
 import ListExtra :: *;
 import Dict :: *;
+import MasterSlave :: *;
+import SourceSink :: *;
 
 // list of exported indentifiers
 export Recipe;
@@ -58,6 +61,7 @@ export rBlock;
 export RecipeBlock;
 export ToRecipe(..);
 export RecipeFSM(..);
+export mkRecipeFSMSlave;
 export compile;
 export compileMutuallyExclusive;
 export compileRules;
@@ -142,15 +146,42 @@ function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatc
 // Add recipe to a mutex group
 function Recipe rMutExGroup(String s, Recipe r) = RMutexGroup(tuple2(s, r));
 
-// Recipe compiler front modules
+// Recipe interfaces
 ////////////////////////////////////////////////////////////////////////////////
 
 interface RecipeFSM;
+  method Bool canStart();
   method Action start();
   method Bool isLastCycle();
   method Bool isDone();
   method Action waitForDone();
 endinterface
+
+module [Module] mkRecipeFSMSlave#(
+  function Recipe recipe_func (in_t args, FIFOF#(out_t) outff))
+  (Slave#(in_t, out_t)) provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
+  Reg#(in_t) arg_reg[2] <- mkCRegU(2);
+  FIFOF#(out_t) ret_ff <- mkBypassFIFOF;
+  RecipeFSM recipe_fsm <- compile(recipe_func(arg_reg[1], ret_ff));
+  interface Sink sink;
+    method canPut = recipe_fsm.canStart;
+    method put(x) if (recipe_fsm.canStart) = action
+      arg_reg[0] <= x;
+      recipe_fsm.start;
+    endaction;
+  endinterface
+  interface Source source;
+    method canGet = ret_ff.notEmpty;
+    method peek if (ret_ff.notEmpty) = ret_ff.first;
+    method get if (ret_ff.notEmpty) = actionvalue
+      ret_ff.deq;
+      return ret_ff.first;
+    endactionvalue;
+  endinterface
+endmodule
+
+// Recipe compiler front modules
+////////////////////////////////////////////////////////////////////////////////
 
 // compiles a recipe and returns the generated rules together with a done signal
 module [Module] compileRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
@@ -181,7 +212,7 @@ Maybe#(String) noMutEx = tagged Invalid;
 // top compile module wrapping the machine with appropriate flow control
 module [Module] topCompile#(Recipe r) (Tuple2#(Rules, RecipeFSM));
   FlowFF goFF <- mkBypassFIFO;
-  FlowFF busyFF <- mkBypassFIFO; // To push back while the machine is busy
+  FIFOF#(Bit#(0)) busyFF <- mkBypassFIFOF; // To push back while the machine is busy
   FlowFF doneFF <- mkBypassFIFO;
   Reg#(Bool) doneReg[3] <- mkCReg(3, False);
   PulseWire lastCycle <- mkPulseWire;
@@ -204,6 +235,7 @@ module [Module] topCompile#(Recipe r) (Tuple2#(Rules, RecipeFSM));
       busyFF.enq(?);
     endaction;
     method Bool isLastCycle() = lastCycle;
+    method Bool canStart() = busyFF.notFull();
     method Bool isDone() = doneReg[2];
     method Action waitForDone() if (doneReg[2]) = action endaction;
   endmodule
