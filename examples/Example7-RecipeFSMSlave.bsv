@@ -28,7 +28,6 @@
  */
 
 import Recipe :: *;
-import FIFOF :: *;
 import MasterSlave :: *;
 import SourceSink :: *;
 #include "RecipeMacros.h"
@@ -38,13 +37,13 @@ module top ();
   Reg#(Bit#(8)) cnt <- mkReg(0);
   function Recipe multiCycleAdder (
     Tuple2#(Bit#(32), Bit#(32)) args,
-    FIFOF#(Bit#(32)) sumff);
+    Sink#(Bit#(32)) sumsnk);
     match {.a, .b} = args;
     return Seq
       $display("%0t -- a (%0d) + b (%0d)", $time, a, b),
       writeReg(cnt, 0),
       While (cnt < 10) writeReg(cnt, cnt + 1) End,
-      sumff.enq(a + b)
+      sumsnk.put(a + b)
     End;
   endfunction
 

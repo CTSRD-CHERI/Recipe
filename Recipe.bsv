@@ -158,11 +158,11 @@ interface RecipeFSM;
 endinterface
 
 module [Module] mkRecipeFSMSlave#(
-  function Recipe recipe_func (in_t args, FIFOF#(out_t) outff))
+  function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
   (Slave#(in_t, out_t)) provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
   Reg#(in_t) arg_reg[2] <- mkCRegU(2);
   FIFOF#(out_t) ret_ff <- mkBypassFIFOF;
-  RecipeFSM recipe_fsm <- compile(recipe_func(arg_reg[1], ret_ff));
+  RecipeFSM recipe_fsm <- compile(recipe_func(arg_reg[1], toSink(ret_ff)));
   interface Sink sink;
     method canPut = recipe_fsm.canStart;
     method put(x) if (recipe_fsm.canStart) = action
@@ -170,14 +170,7 @@ module [Module] mkRecipeFSMSlave#(
       recipe_fsm.start;
     endaction;
   endinterface
-  interface Source source;
-    method canGet = ret_ff.notEmpty;
-    method peek if (ret_ff.notEmpty) = ret_ff.first;
-    method get if (ret_ff.notEmpty) = actionvalue
-      ret_ff.deq;
-      return ret_ff.first;
-    endactionvalue;
-  endinterface
+  interface source = toSource(ret_ff);
 endmodule
 
 // Recipe compiler front modules
