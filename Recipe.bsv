@@ -61,6 +61,10 @@ export rBlock;
 export RecipeBlock;
 export ToRecipe(..);
 export RecipeFSM(..);
+export RecipeFSMRsp(..);
+export mkRecipeFSMRspCore;
+export mkRecipeFSMRsp;
+export mkRecipeFSMSlaveCore;
 export mkRecipeFSMSlave;
 export compile;
 export compileMutuallyExclusive;
@@ -157,20 +161,65 @@ interface RecipeFSM;
   method Action waitForDone();
 endinterface
 
+interface RecipeFSMRsp#(type rsp_t);
+  interface RecipeFSM fsm;
+  interface Source#(rsp_t) rsp;
+endinterface
+
+module [Module] mkRecipeFSMCore#(
+  Module#(FIFOF#(out_t)) mkFF,
+  function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
+  (Tuple2#(RecipeFSM, Slave#(in_t, out_t)))
+  provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
+  Reg#(in_t) arg_reg[2] <- mkCRegU(2);
+  FIFOF#(out_t) ret_ff <- mkFF;
+  RecipeFSM recipe_fsm <- compile(recipe_func(arg_reg[1], toSink(ret_ff)));
+  let s = interface Slave;
+    interface sink = interface Sink;
+      method canPut = recipe_fsm.canStart;
+      method put(x) if (recipe_fsm.canStart) = action
+        arg_reg[0] <= x;
+        recipe_fsm.start;
+      endaction;
+    endinterface;
+    interface source = toSource(ret_ff);
+  endinterface;
+  return tuple2(recipe_fsm, s);
+endmodule
+
+module [Module] mkRecipeFSMSlaveCore#(
+  Module#(FIFOF#(out_t)) mkFF,
+  function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
+  (Slave#(in_t, out_t)) provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
+  let core <- mkRecipeFSMCore(mkFF, recipe_func);
+  return tpl_2(core);
+endmodule
 module [Module] mkRecipeFSMSlave#(
   function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
   (Slave#(in_t, out_t)) provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
-  Reg#(in_t) arg_reg[2] <- mkCRegU(2);
-  FIFOF#(out_t) ret_ff <- mkBypassFIFOF;
-  RecipeFSM recipe_fsm <- compile(recipe_func(arg_reg[1], toSink(ret_ff)));
-  interface Sink sink;
-    method canPut = recipe_fsm.canStart;
-    method put(x) if (recipe_fsm.canStart) = action
-      arg_reg[0] <= x;
-      recipe_fsm.start;
-    endaction;
-  endinterface
-  interface source = toSource(ret_ff);
+  let core <- mkRecipeFSMSlaveCore(mkBypassFIFOF, recipe_func);
+  return core;
+endmodule
+
+module [Module] mkRecipeFSMRspCore#(
+  Module#(FIFOF#(rsp_t)) mkFF,
+  function Recipe recipe_func (Sink#(rsp_t) outsnk))
+  (RecipeFSMRsp#(rsp_t)) provisos (Bits#(rsp_t, rsp_sz));
+  function Recipe drop1arg (Bit#(0) dummy, Sink#(rsp_t) outsnk) =
+    recipe_func(outsnk);
+  let core <- mkRecipeFSMCore(mkFF, drop1arg);
+  interface fsm = tpl_1(core);
+  interface rsp = tpl_2(core).source;
+endmodule
+
+module [Module] mkRecipeFSMRsp#(
+  function Recipe recipe_func (Sink#(rsp_t) outsnk))
+  (RecipeFSMRsp#(rsp_t)) provisos (Bits#(rsp_t, rsp_sz));
+  function Recipe drop1arg (Bit#(0) dummy, Sink#(rsp_t) outsnk) =
+    recipe_func(outsnk);
+  let core <- mkRecipeFSMCore(mkBypassFIFOF, drop1arg);
+  interface fsm = tpl_1(core);
+  interface rsp = tpl_2(core).source;
 endmodule
 
 // Recipe compiler front modules
