@@ -50,6 +50,7 @@ export rAct;
 export rActV;
 export rFastSeq;
 export rSeq;
+export rPipe;
 export rPar;
 export rAllGuard;
 export rOneMatch;
@@ -62,23 +63,21 @@ export RecipeBlock;
 export ToRecipe(..);
 export RecipeFSM(..);
 export RecipeFSMRsp(..);
+export mkRecipeFSM;
 export mkRecipeFSMRspCore;
 export mkRecipeFSMRsp;
 export mkRecipeFSMSlaveCore;
 export mkRecipeFSMSlave;
-export compile;
-export compileMutuallyExclusive;
-export compileRules;
 
 // Flow control
-typedef FIFO#(Bit#(0)) FlowFF;
+typedef FIFOF#(Bit#(0)) FlowFF;
 // Recipe data type
 typedef union tagged {
   Action RAct;
   ActionValue#(Bool) RActV;
   Tuple4#(Module#(FlowFF), Bool, Recipe, Recipe) RIfElse;
   Tuple3#(Module#(FlowFF), Bool, Recipe) RWhile;
-  Tuple3#(Module#(FlowFF), function Rules f(Rules x, Rules y), List#(Recipe)) RSeq;
+  Tuple5#(Module#(FlowFF), Bool, Bool, function Rules f(Rules x, Rules y), List#(Recipe)) RSeq;
   Tuple2#(Module#(FlowFF), List#(Recipe)) RPar;
   Tuple5#(Module#(FlowFF), List#(Bool), List#(Recipe), Module#(FlowFF), Recipe) ROneMatch;
   Tuple2#(String, Recipe) RMutexGroup;
@@ -129,36 +128,64 @@ function Recipe rAct(Action a) = RAct(a);
 // ActionValue recipe
 function Recipe rActV(ActionValue#(Bool) a) = RActV(a);
 // First recipe happens for a True condition, second recipe otherwise
-function Recipe rIfElse(Bool c, Recipe r0, Recipe r1) = RIfElse(tuple4(mkBypassFIFO, c, r0, r1));
+function Recipe rIfElse(Bool c, Recipe r0, Recipe r1) = RIfElse(tuple4(mkBypassFIFOF, c, r0, r1));
 function Recipe rWhen(Bool c, Recipe r) = rIfElse(c, r, rAct(noAction));
 // Recipe happens as long as the condition is True
-function Recipe rWhile(Bool c, Recipe r) = RWhile(tuple3(mkBypassFIFO, c, r));
+function Recipe rWhile(Bool c, Recipe r) = RWhile(tuple3(mkBypassFIFOF, c, r));
 // All recipes happen in order
-function Recipe rSeq(List#(Recipe) rs) = RSeq(tuple3(mkFIFO1, rJoinMutuallyExclusive, rs));
+function Recipe rSeq(List#(Recipe) rs) = RSeq(tuple5(mkFIFOF1, True, False, rJoinMutuallyExclusive, rs));
 // XXX FastSeq:
-// All recipes happen in order with no latency (separated by mkBypassFIFO).
+// All recipes happen in order with no latency (separated by mkBypassFIFOF).
 // Data dependencies can still create latency. Any module whose firing in an early rule depends
-// on the firing of a later rule (typically mkPipeLineFIFO and the likes) will cause a scheduling
-// error as the rules are separated by a mkBypassFIFO, leading to a cycle in the canfire/willfire signals.
-function Recipe rFastSeq(List#(Recipe) rs) = RSeq(tuple3(mkBypassFIFO, rJoinDescendingUrgency, rs));
+// on the firing of a later rule (typically mkPipeLineFIFOF and the likes) will cause a scheduling
+// error as the rules are separated by a mkBypassFIFOF, leading to a cycle in the canfire/willfire signals.
+function Recipe rFastSeq(List#(Recipe) rs) = RSeq(tuple5(mkBypassFIFOF, True, False, rJoinDescendingUrgency, rs));
+// XXX Pipe
+//function Recipe rPipe(List#(Recipe) rs) = RSeq(tuple5(mkFIFOF, False, True, rJoinConflictFree, rs));
+function Recipe rPipe(List#(Recipe) rs) = RSeq(tuple5(mkFIFOF, False, True, rJoinDescendingUrgency, rs));
 // All recipes happen in parallel
-function Recipe rPar(List#(Recipe) rs) = RPar(tuple2(mkBypassFIFO, rs));
+function Recipe rPar(List#(Recipe) rs) = RPar(tuple2(mkBypassFIFOF, rs));
 // All recipes with predicate matching happen in parallel
 function Recipe rAllGuard(List#(Bool) gs, List#(Recipe) rs) = rPar(zipWith(rWhen, gs, rs));
 // First recipe with that matches happens, otherwise fall-through recipe
-function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatch(tuple5(mkBypassFIFO, gs, rs, mkBypassFIFO, r));
+function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatch(tuple5(mkBypassFIFOF, gs, rs, mkBypassFIFOF, r));
 // Add recipe to a mutex group
 function Recipe rMutExGroup(String s, Recipe r) = RMutexGroup(tuple2(s, r));
+
+// Inner Recipe types and utils
+////////////////////////////////////////////////////////////////////////////////
+`define RULES_DICT Dict#(Maybe#(String), Rules)
+
+typedef Sink#(Bit#(0)) FlowSnk;
+typedef Source#(Bit#(0)) FlowSrc;
+typedef struct {
+  FlowSnk go;
+  FlowSrc done;
+  `RULES_DICT dict;
+} CoreRecipe;
+function `RULES_DICT getDict(CoreRecipe x) = x.dict;
+function FlowSnk       getGo(CoreRecipe x) = x.go;
+function FlowSrc     getDone(CoreRecipe x) = x.done;
+
+typedef union tagged {
+  Module#(FlowFF) MkFF;
+  FlowFF FF;
+} FlowFFArg;
+module [Module] craftFlowFF#(FlowFFArg ffarg)(FlowFF);
+  case (ffarg) matches
+    tagged MkFF .mkFF: begin FlowFF newff <- mkFF; return newff; end
+    tagged FF .ff: return ff;
+  endcase
+endmodule
+
+Maybe#(String) noMutEx = tagged Invalid;
 
 // Recipe interfaces
 ////////////////////////////////////////////////////////////////////////////////
 
 interface RecipeFSM;
-  method Bool canStart();
-  method Action start();
-  method Bool isLastCycle();
-  method Bool isDone();
-  method Action waitForDone();
+  method Bool   canTrigger;
+  method Action trigger;
 endinterface
 
 interface RecipeFSMRsp#(type rsp_t);
@@ -173,13 +200,13 @@ module [Module] mkRecipeFSMCore#(
   provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
   Reg#(in_t) arg_reg[2] <- mkCRegU(2);
   FIFOF#(out_t) ret_ff <- mkFF;
-  RecipeFSM recipe_fsm <- compile(recipe_func(arg_reg[1], toSink(ret_ff)));
+  RecipeFSM recipe_fsm <- mkRecipeFSM(recipe_func(arg_reg[1], toSink(ret_ff)));
   let s = interface Slave;
     interface sink = interface Sink;
-      method canPut = recipe_fsm.canStart;
-      method put(x) if (recipe_fsm.canStart) = action
+      method canPut = recipe_fsm.canTrigger;
+      method put(x) if (recipe_fsm.canTrigger) = action
         arg_reg[0] <= x;
-        recipe_fsm.start;
+        recipe_fsm.trigger;
       endaction;
     endinterface;
     interface source = toSource(ret_ff);
@@ -225,103 +252,78 @@ endmodule
 // Recipe compiler front modules
 ////////////////////////////////////////////////////////////////////////////////
 
-// compiles a recipe and returns the generated rules together with a done signal
-module [Module] compileRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
-  Tuple2#(Rules, RecipeFSM) x <- topCompile(r);
-  return x;
-endmodule
-// compiles a recipe, adds the rules to the module and returns a done signal
-module [Module] compile#(Recipe r) (RecipeFSM);
-  Tuple2#(Rules, RecipeFSM) x <- topCompile(r);
+// compiles a recipe, adds the rules to the module and returns a RecipeFSM
+module [Module] mkRecipeFSM#(Recipe r) (RecipeFSM);
+  Tuple2#(Rules, RecipeFSM) x <- mkRecipeFSMRules(r);
   addRules(tpl_1(x));
   return tpl_2(x);
 endmodule
-// compiles a list of recipes, adds the rules for each recipe such that they are
-// mutually exclusive, and returns a list of done signals
-module [Module] compileMutuallyExclusive#(List#(Recipe) rs) (List#(RecipeFSM));
-  List#(Tuple2#(Rules, RecipeFSM)) xs <- mapM(topCompile, rs);
-  addRules(fold(rJoinMutuallyExclusive, map(tpl_1, xs)));
-  return map(tpl_2,xs);
-endmodule
 
-// Recipe compiler inner modules
-////////////////////////////////////////////////////////////////////////////////
-
-`define DICT_T Dict#(Maybe#(String), Rules)
-
-Maybe#(String) noMutEx = tagged Invalid;
-
-// top compile module wrapping the machine with appropriate flow control
-module [Module] topCompile#(Recipe r) (Tuple2#(Rules, RecipeFSM));
-  FlowFF goFF <- mkBypassFIFO;
-  FIFOF#(Bit#(0)) busyFF <- mkBypassFIFOF; // To push back while the machine is busy
-  FlowFF doneFF <- mkBypassFIFO;
-  Reg#(Bool) doneReg[3] <- mkCReg(3, False);
-  PulseWire lastCycle <- mkPulseWire;
-  // compile recipe and gather rules
-  `DICT_T compiledRules <- innerCompile(noMutEx, r, goFF, doneFF);
-  Rules wrappingRules = rules
-    rule endMachine;
-      //$display("%0t -- endMachine", $time);
-      doneFF.deq();
-      busyFF.deq();
-      lastCycle.send();
-      doneReg[1] <= True;
-    endrule
-  endrules;
-  // implement RecipeFSM interface
-  module mkIFC (RecipeFSM);
-    method Action start() = action
-      doneReg[0] <= False;
-      goFF.enq(?);
-      busyFF.enq(?);
-    endaction;
-    method Bool isLastCycle() = lastCycle;
-    method Bool canStart() = busyFF.notFull();
-    method Bool isDone() = doneReg[2];
-    method Action waitForDone() if (doneReg[2]) = action endaction;
-  endmodule
-  RecipeFSM machine <- mkIFC;
-  // compose the rules from the dictionary, respecting mutual exclusivity groups
+// compiles a recipe, returns the generated rules and a RecipeFSM
+module [Module] mkRecipeFSMRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
+  CoreRecipe cr <- mkCoreRecipe(r);
+  // get the RecipeFSM interface
+  RecipeFSM machine = interface RecipeFSM;
+    method canTrigger = cr.go.canPut;
+    method trigger    = cr.go.put(?);
+  endinterface;
+  // get the Rules
+  Rules drain = rules rule drain; let _ <- cr.done.get; endrule endrules;
   function isNormal(x) = !isValid(tpl_1(x));
   function  isMutEx(x) = isValid(tpl_1(x));
-  `DICT_T normalDict = Dict::filter(isNormal, compiledRules);
-  `DICT_T  mutExDict = Dict::filter(isMutEx, compiledRules);
-
-  Rules normalRules = foldl(rJoin, emptyRules, values(normalDict));
-  Rules  mutExRules = foldl(rJoinMutuallyExclusive, emptyRules, values(mutExDict));
-  return tuple2(rJoin(wrappingRules, rJoin(normalRules, mutExRules)), machine);
+  `RULES_DICT normalDict = Dict::filter(isNormal, cr.dict);
+  `RULES_DICT  mutExDict = Dict::filter(isMutEx, cr.dict);
+  Rules normal = foldl(rJoin, emptyRules, values(normalDict));
+  Rules  mutEx = foldl(rJoinMutuallyExclusive, emptyRules, values(mutExDict));
+  return tuple2(rJoin(drain, rJoin(normal, mutEx)), machine);
 endmodule
 
-// main compile module
-module [Module] innerCompile#(Maybe#(String) mutex_tag, Recipe r, FlowFF goFF, FlowFF doneFF) (`DICT_T);
+// compile a recipe, returns the core recipe
+module [Module] mkCoreRecipe#(Recipe r) (CoreRecipe);
+  let coreRecipe <- coreRecipeCompile(noMutEx, r,
+                                      MkFF(mkBypassFIFOF),
+                                      MkFF(mkBypassFIFOF));
+  return coreRecipe;
+endmodule
 
-  // module helper wrapping Recipe output with a provided FlowFF constructor
+// Core Recipe Compiler
+////////////////////////////////////////////////////////////////////////////////
+module [Module] coreRecipeCompile#(Maybe#(String) mutex,
+                                   Recipe r,
+                                   FlowFFArg goArg,
+                                   FlowFFArg doneArg)
+                                   (CoreRecipe);
+
+  // prepare comp short name, goFF, doneFF and coreRecipe
   //////////////////////////////////////////////////////////////////////////////
-  module [Module] compileWrapOut#(Module#(FlowFF) mkFF, Maybe#(String) t, Recipe r, FlowFF inFF) (Tuple2#(FlowFF, `DICT_T));
-    FlowFF outFF <- mkFF;
-    `DICT_T innerRules <- innerCompile(t, r, inFF, outFF);
-    return tuple2(outFF, innerRules);
-  endmodule
+  function comp = coreRecipeCompile;
+  FlowFF goFF   <- craftFlowFF(goArg);
+  FlowFF doneFF <- craftFlowFF(doneArg);
+  CoreRecipe coreRecipe = CoreRecipe {
+    go: toSink(goFF),
+    done: toSource(doneFF),
+    dict: mempty
+  };
+
   // core compiler
   //////////////////////////////////////////////////////////////////////////////
   case (r) matches
     // Action recipe
     ////////////////////////////////////////////////////////////////////////////
-    tagged RAct .a: return dict(mutex_tag, rules
+    tagged RAct .a: coreRecipe.dict = dict(mutex, rules
       rule runAct;
         a;
-        goFF.deq();
+        goFF.deq;
         doneFF.enq(?);
       endrule
     endrules);
     // ActionValue recipe
     ////////////////////////////////////////////////////////////////////////////
-    tagged RActV .av: return dict(mutex_tag, rules
+    tagged RActV .av: coreRecipe.dict = dict(mutex, rules
       rule runActV;
         Bool isDone <- av;
         if (isDone) begin
-          goFF.deq();
+          goFF.deq;
           doneFF.enq(?);
         end
       endrule
@@ -331,70 +333,72 @@ module [Module] innerCompile#(Maybe#(String) mutex_tag, Recipe r, FlowFF goFF, F
     tagged RIfElse {.mkFF, .cond, .r_if, .r_else}: begin
       // declare flow control state //
       ////////////////////////////////
-      FlowFF inFF_if     <- mkFF;
-      FlowFF inFF_else   <- mkFF;
-      FlowFF outFF_if    <- mkBypassFIFO;
-      FlowFF outFF_else  <- mkBypassFIFO;
-      FIFO#(Bool) condFF <- mkBypassFIFO;
+      FIFOF#(Bool) condFF <- mkBypassFIFOF;
       // compile and gather rules //
       //////////////////////////////
-      `DICT_T ifRules   <- innerCompile(mutex_tag, r_if, inFF_if, outFF_if);
-      `DICT_T elseRules <- innerCompile(mutex_tag, r_else, inFF_else, outFF_else);
-      `DICT_T beforeRules = dict(noMutEx, rules rule enqCondFF;
-        goFF.deq();
+      CoreRecipe ifRecipe   <- comp(mutex, r_if,
+                                    MkFF(mkFF), MkFF(mkBypassFIFOF));
+      CoreRecipe elseRecipe <- comp(mutex, r_else,
+                                    MkFF(mkFF), MkFF(mkBypassFIFOF));
+      `RULES_DICT beforeRules = dict(noMutEx, rules rule enqCondFF;
+        goFF.deq;
         condFF.enq(cond);
-        if (cond) inFF_if.enq(?);
-        else inFF_else.enq(?);
+        if (cond) ifRecipe.go.put(?);
+        else elseRecipe.go.put(?);
       endrule endrules);
-      `DICT_T afterIfRules = dict(noMutEx, rules rule finishIf(condFF.first);
-        condFF.deq();
-        outFF_if.deq();
+      `RULES_DICT afterIfRules = dict(noMutEx, rules
+      rule finishIf(condFF.first);
+        condFF.deq;
+        let _ <- ifRecipe.done.get;
         doneFF.enq(?);
       endrule endrules);
-      `DICT_T afterElseRules = dict(noMutEx, rules rule finishElse(!condFF.first);
-        condFF.deq();
-        outFF_else.deq();
+      `RULES_DICT afterElseRules = dict(noMutEx, rules
+      rule finishElse(!condFF.first);
+        condFF.deq;
+        let _ <- elseRecipe.done.get;
         doneFF.enq(?);
       endrule endrules);
       // join rules //
       ////////////////
-      ifRules = mergeWith(rJoinExecutionOrder, ifRules, afterIfRules);
-      elseRules = mergeWith(rJoinExecutionOrder, elseRules, afterElseRules);
-      `DICT_T ifElseRules = mergeWith(rJoinMutuallyExclusive, ifRules, elseRules);
-      return mergeWith(rJoinExecutionOrder, beforeRules, ifElseRules);
+      `RULES_DICT ifRules   = mergeWith(rJoinExecutionOrder,
+                                        ifRecipe.dict, afterIfRules);
+      `RULES_DICT elseRules = mergeWith(rJoinExecutionOrder,
+                                        elseRecipe.dict, afterElseRules);
+      `RULES_DICT ifElseRules = mergeWith(rJoinMutuallyExclusive,
+                                          ifRules, elseRules);
+      coreRecipe.dict = mergeWith(rJoinExecutionOrder,
+                                  beforeRules, ifElseRules);
     end
     // While loop recipe construct
     ////////////////////////////////////////////////////////////////////////////
     tagged RWhile {.mkFF, .cond, .r}: begin
-      FlowFF inFF <- mkFF;
-      FlowFF outFF <- mkBypassFIFO;
-      Reg#(Bool) busy[2] <- mkCReg(2, False);
+      Reg#(Bool)       busy[2] <- mkCReg(2, False);
       Reg#(Bool) activeStep[3] <- mkCReg(3, False);
       // XXX Note, for cond, this wire emulates the behaviour of a ConfigReg to
       // avoid scheduling issues between the inner rules updating the condition
       // and the wrapping rules reading it.
-      PulseWire condValid <- mkPulseWire;
-      `DICT_T innerRules <- innerCompile(mutex_tag, r, inFF, outFF);
-      `DICT_T wrappingRules = dict(noMutEx,
+      PulseWire condValid    <- mkPulseWire;
+      CoreRecipe innerRecipe <- comp(mutex, r, MkFF(mkFF), MkFF(mkBypassFIFOF));
+      `RULES_DICT wrappingRules = dict(noMutEx,
       (* descending_urgency = "endStepWhile, endWhile"*)
       rules
         rule ackGoFFWhile (!busy[0]);
           //$display("%0t -- ackGoFFWhile", $time);
-          goFF.deq();
+          goFF.deq;
           busy[0] <= True;
         endrule
         rule readCondWhile (cond && busy[1]);
           //$display("%0t -- readCondWhile", $time);
-          condValid.send();
+          condValid.send;
         endrule
         rule startStepWhile (busy[1] && condValid && !activeStep[0]);
           //$display("%0t -- startStepWhile", $time);
-          inFF.enq(?);
+          innerRecipe.go.put(?);
           activeStep[0] <= True;
         endrule
         rule endStepWhile;
           //$display("%0t -- endStepWhile", $time);
-          outFF.deq();
+          let _ <- innerRecipe.done.get;
           activeStep[1] <= False;
         endrule
         rule endWhile (busy[1] && !condValid && !activeStep[2]);
@@ -403,46 +407,69 @@ module [Module] innerCompile#(Maybe#(String) mutex_tag, Recipe r, FlowFF goFF, F
           doneFF.enq(?);
         endrule
       endrules);
-      return mconcat(list(innerRules, wrappingRules));
+      coreRecipe.dict = mconcat(list(innerRecipe.dict, wrappingRules));
     end
     // Seq recipe construct
     ////////////////////////////////////////////////////////////////////////////
-    tagged RSeq {.mkFF, .rulesJoin, Nil}: return dict(noMutEx, rules
-      rule emptySeq; goFF.deq(); doneFF.enq(?); endrule
+    tagged RSeq {.w_, .x_, .y_, .z_, Nil}: coreRecipe.dict = dict(noMutEx, rules
+      rule emptySeq; goFF.deq; doneFF.enq(?); endrule
     endrules);
-    tagged RSeq {.mkFF, .rulesJoin, .rs}: begin
+    tagged RSeq {.mkFF, .block, .invert, .rulesJoin, .rs}: begin
+      Reg#(Bool) busy[2] <- mkCReg(2, False);
       FlowFF lastFF = goFF;
       Integer seqLength = length(rs);
       List#(Recipe) rList = rs;
       // go through the list and leave the last element in there
-      `DICT_T seqRules = mempty;
+      `RULES_DICT seqRules = mempty;
       for (Integer i = 0; i < seqLength - 1; i = i + 1) begin
-        Tuple2#(FlowFF, `DICT_T) step <- compileWrapOut(mkFF, mutex_tag, head(rList), lastFF);
-        lastFF = tpl_1(step);
-        seqRules = mergeWith(rulesJoin, seqRules, tpl_2(step));
-        rList = tail(rList);
+        let newFF <- mkFF;
+        CoreRecipe step <- comp(mutex, head(rList), FF(lastFF), FF(newFF));
+        lastFF   = newFF;
+        if (invert) seqRules = mergeWith(rulesJoin, step.dict, seqRules);
+        else seqRules = mergeWith(rulesJoin, seqRules, step.dict);
+        rList    = tail(rList);
       end
-      `DICT_T lastStep <- innerCompile(mutex_tag, head(rList), lastFF, doneFF);
-      return mergeWith(rulesJoin, seqRules, lastStep);
+      CoreRecipe lastStep <- comp(mutex, head(rList), FF(lastFF), FF(doneFF));
+      if (invert)
+        coreRecipe.dict = mergeWith(rulesJoin, lastStep.dict, seqRules);
+      else coreRecipe.dict = mergeWith(rulesJoin, seqRules, lastStep.dict);
+      if (block) begin
+        coreRecipe.go = interface Sink;
+          method canPut = !busy[0] && goFF.notFull;
+          method put(x) if (!busy[0]) = action busy[0] <= True; goFF.enq(?); endaction;
+        endinterface;
+        coreRecipe.done = interface Source;
+          method canGet = busy[1] && doneFF.notEmpty;
+          method   peek = doneFF.first;
+          method get if (busy[1]) = actionvalue
+            busy[1] <= False;
+            doneFF.deq;
+            return doneFF.first;
+          endactionvalue;
+        endinterface;
+      end
     end
     // Par recipe construct
     ////////////////////////////////////////////////////////////////////////////
     tagged RPar {.mkFF, .rs}: begin
-      Integer parLength = length(rs);
-      List#(FlowFF) inFFs <- replicateM(parLength, mkFF);
-      List#(Tuple2#(FlowFF, `DICT_T)) branches <- zipWithM (compileWrapOut(mkBypassFIFO, mutex_tag), rs, inFFs);
-      `DICT_T branchRules = mconcat(map(tpl_2, branches));
-      `DICT_T forkRule = dict(noMutEx, rules rule forkPar;
-        goFF.deq();
-        function Action doEnq(FIFO#(x) ff) = action ff.enq(?); endaction;
-        joinActions(map(doEnq, inFFs));
+      function shuffleComp(a,b,c,d) = comp(a,d,b,c);
+      List#(CoreRecipe) branches <- mapM(shuffleComp(mutex,
+                                                     MkFF(mkFF),
+                                                     MkFF(mkBypassFIFOF)),
+                                         rs);
+      `RULES_DICT branchRules = mconcat(map(getDict, branches));
+      `RULES_DICT forkRule = dict(noMutEx, rules rule forkPar;
+        goFF.deq;
+        function trigger(x) = action x.go.put(?); endaction;
+        joinActions(map(trigger, branches));
       endrule endrules);
-      `DICT_T joinRule = dict(noMutEx, rules rule joinPar;
-        function Action doDeq(FIFO#(x) ff) = action ff.deq(); endaction;
-        joinActions(map(doDeq, map(tpl_1, branches)));
+      `RULES_DICT joinRule = dict(noMutEx, rules rule joinPar;
+        function drain(x) = action let _ <- x.done.get; endaction;
+        joinActions(map(drain, branches));
         doneFF.enq(?);
       endrule endrules);
-      return concatWith(rJoinExecutionOrder, list(forkRule, branchRules, joinRule));
+      coreRecipe.dict = concatWith(rJoinExecutionOrder,
+                                   list(forkRule, branchRules, joinRule));
     end
     // OneMatch recipe construct
     ////////////////////////////////////////////////////////////////////////////
@@ -451,56 +478,66 @@ module [Module] innerCompile#(Maybe#(String) mutex_tag, Recipe r, FlowFF goFF, F
       /////////////////////////////
       Integer rlen = length(rs);
       Integer glen = length(gs);
-      if (rlen != glen) error(sprintf("OneMatch recipe constructor: list of guards and of recipes must be the same length (given %0d guards and %0d recipes).", glen, rlen));
+      if (rlen != glen) error(sprintf(
+          "OneMatch recipe constructor: list of guards and of recipes must be "
+        + "the same length (given %0d guards and %0d recipes).", glen, rlen));
       // local resources //
       /////////////////////
-      PulseWire done                           <- mkPulseWireOR;
-      FlowFF dfltFF                            <- mkDfltFF;
-      Tuple2#(FlowFF, `DICT_T) dflt            <- compileWrapOut(mkBypassFIFO, mutex_tag, r, dfltFF);
-      List#(FlowFF) inFFs                      <- replicateM(rlen, mkFF);
-      List#(Tuple2#(FlowFF, `DICT_T)) branches <- zipWithM (compileWrapOut(mkBypassFIFO, mutex_tag), rs, inFFs);
+      PulseWire done  <- mkPulseWireOR;
+      CoreRecipe dflt <- comp(mutex, r, MkFF(mkDfltFF), MkFF(mkBypassFIFOF));
+      function shuffleComp(a,b,c,d) = comp(a,d,b,c);
+      List#(CoreRecipe) branches <- mapM(shuffleComp(mutex,
+                                                     MkFF(mkFF),
+                                                     MkFF(mkBypassFIFOF)),
+                                         rs);
       // rules for branch recipes //
       //////////////////////////////
-      `DICT_T allbranchRules = concatWith(rJoinMutuallyExclusive, map(tpl_2, branches));
-      `DICT_T dfltBranchRules = tpl_2(dflt);
-      `DICT_T branchRules = mergeWith(rJoinMutuallyExclusive, allbranchRules, dfltBranchRules);
+      `RULES_DICT allbranchRules = concatWith(rJoinMutuallyExclusive,
+                                              map(getDict, branches));
+      `RULES_DICT branchRules = mergeWith(rJoinMutuallyExclusive,
+                                          allbranchRules, dflt.dict);
       // rules for branch triggering //
       /////////////////////////////////
-      `DICT_T triggerRules = dict(noMutEx, rules rule triggerOneMatch;
-        goFF.deq();
+      `RULES_DICT triggerRules = dict(noMutEx, rules rule triggerOneMatch;
+        goFF.deq;
         // trigger first matching branch, or default branch otherwise
-        case(find(tpl_1, zip(gs, inFFs))) matches
-          tagged Valid {.guard, .ff}: ff.enq(?);
-          tagged Invalid: dfltFF.enq(?);
+        case(find(tpl_1, zip(gs, branches))) matches
+          tagged Valid {.guard, .b}: b.go.put(?);
+          tagged Invalid: dflt.go.put(?);
         endcase
       endrule endrules);
       // rules to gather each branch //
       /////////////////////////////////
-      function Rules gatherRule(FIFO#(x) ff) = rules
-        rule gatherOneMatch; ff.deq(); done.send(); endrule
+      function gatherRule(x) = rules
+        rule gatherOneMatch; let _ <- x.done.get; done.send; endrule
       endrules;
-      Rules allGatherRules = fold(rJoinMutuallyExclusive, map(gatherRule, map(tpl_1, branches)));
+      Rules allGatherRules = fold(rJoinMutuallyExclusive,
+                                  map(gatherRule, branches));
       Rules dfltGatherRules = rules
-        rule gatherDfltOneMatch; tpl_1(dflt).deq(); done.send(); endrule
+        rule gatherDfltOneMatch; let _ <- dflt.done.get; done.send(); endrule
       endrules;
-      `DICT_T gatherRules = dict(noMutEx, rJoinMutuallyExclusive(allGatherRules, dfltGatherRules));
+      `RULES_DICT gatherRules = dict(noMutEx, rJoinMutuallyExclusive(
+                                     allGatherRules, dfltGatherRules));
       // rules to generate final done signal //
       /////////////////////////////////////////
-      `DICT_T finalRules = dict(noMutEx, rules
+      `RULES_DICT finalRules = dict(noMutEx, rules
         rule finalOneMatch (done); doneFF.enq(?); endrule
       endrules);
       // compose all rules and return
-      return concatWith(rJoinExecutionOrder, list(triggerRules, branchRules, gatherRules, finalRules));
+      coreRecipe.dict = concatWith(rJoinExecutionOrder, list(
+                        triggerRules, branchRules, gatherRules, finalRules));
     end
     // Tag recipe
     ////////////////////////////////////////////////////////////////////////////
-    tagged RMutexGroup {.mutex_str, .recipe}: begin
-      let d <- innerCompile(Valid(mutex_str), recipe, goFF, doneFF);
-      return d;
+    tagged RMutexGroup {.str, .recipe}: begin
+      let d <- coreRecipeCompile(Valid(str), recipe, FF(goFF), FF(doneFF));
+      coreRecipe.dict = d.dict;
     end
   endcase
+  // return newly crafted core recipe
+  return coreRecipe;
 endmodule
 
-`undef DICT_T
+`undef RULES_DICT
 
 endpackage

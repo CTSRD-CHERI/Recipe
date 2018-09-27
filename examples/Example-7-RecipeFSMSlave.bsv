@@ -28,32 +28,57 @@
  */
 
 import Recipe :: *;
+import MasterSlave :: *;
+import SourceSink :: *;
 #include "RecipeMacros.h"
 
 module top ();
 
-  Recipe r = Seq
-    $display("%0t -- A", $time),
-    $display("%0t -- B", $time),
-    $display("%0t -- C", $time),
-    $display("%0t -- D", $time),
-    $display("%0t -- E", $time),
-    $display("%0t -- F", $time),
-    $display("%0t -- G", $time),
-    $display("%0t -- H", $time)
-  End;
+  PulseWire done <- mkPulseWire;
+  Reg#(Bit#(8)) cnt <- mkReg(0);
+  function Recipe multiCycleAdder (
+    Tuple2#(Bit#(32), Bit#(32)) args,
+    Sink#(Bit#(32)) sumsnk);
+    match {.a, .b} = args;
+    return Seq
+      $display("%0t -- a (%0d) + b (%0d)", $time, a, b),
+      writeReg(cnt, 0),
+      While (cnt < 10) writeReg(cnt, cnt + 1) End,
+      sumsnk.put(a + b)
+    End;
+  endfunction
 
-  RecipeFSM m <- compile(r);
+  let adder <- mkRecipeFSMSlave(multiCycleAdder);
+
+  Recipe r = Seq
+    adder.sink.put(tuple2(10, 15)),
+    action
+      let x <- adder.source.get;
+      $display("%0t -- a + b = %0d", $time, x);
+    endaction,
+    adder.sink.put(tuple2(856, 994)),
+    action
+      let x <- adder.source.get;
+      $display("%0t -- a + b = %0d", $time, x);
+    endaction,
+    adder.sink.put(tuple2(42, 3)),
+    action
+      let x <- adder.source.get;
+      $display("%0t -- a + b = %0d", $time, x);
+    endaction,
+    done.send
+  End;
+  RecipeFSM m <- mkRecipeFSM(r);
 
   // Start runing the recipe
   rule run;
     $display("starting at time %0t", $time);
     $display("------------------------------------------");
-    m.start();
+    m.trigger;
   endrule
 
   // On the recipe's last cyle, terminate simulation
-  rule endSim (m.isLastCycle);
+  rule endSim (done);
     $display("------------------------------------------");
     $display("finishing at time %0t", $time);
     $finish(0);

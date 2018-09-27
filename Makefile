@@ -56,22 +56,27 @@ CC = gcc-4.8
 CXX = g++-4.8
 
 EXAMPLESDIR = examples
-#EXAMPLES = $(patsubst Example%.bsv, example%, $(wildcard Example*.bsv))
-EXAMPLESSRC = $(notdir $(wildcard $(EXAMPLESDIR)/Example*.bsv))
-EXAMPLES = $(addprefix sim, $(basename $(EXAMPLESSRC)))
+SIMEXAMPLESSRC = $(sort $(wildcard $(EXAMPLESDIR)/Example-*.bsv))
+SIMEXAMPLES = $(addprefix sim, $(notdir $(basename $(SIMEXAMPLESSRC))))
 
+all: simExamples
 
-all: $(EXAMPLES)
+include .simExamples
 
-simExample%: $(EXAMPLESDIR)/Example%.bsv Recipe.bsv
-	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR) $(OUTPUTDIR)
-	$(BSC) -cpp -Xcpp -I. -info-dir $(OUTPUTDIR)/$@-info $(BSCFLAGS) -sim -g top -u $<
-	CC=$(CC) CXX=$(CXX) $(BSC) $(BSCFLAGS) -sim -e top -o $(OUTPUTDIR)/$@
+simExample-%: $(EXAMPLESDIR)/Example-%.bsv Recipe.bsv
+	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
+	$(BSC) -cpp -Xcpp -I. -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g top -u $<
+	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e top -o $(OUTPUTDIR)/$@
 
-.PHONY: clean mrproper
+.simExamples: $(SIMEXAMPLESSRC)
+	echo "simExamples: $^" > .simExamples
+	for f in $^; do tmp=`basename $$f .bsv`; echo "simExample-$${tmp#"Example-"}: $$f" >> .simExamples; done
+
+.PHONY: clean mrproper all simExamples
 
 clean:
-	rm -fr $(BUILDDIR)
+	rm -f .simExamples
+	rm -f -r $(BUILDDIR)
 
 mrproper: clean
-	rm -fr $(OUTPUTDIR)
+	rm -f -r $(OUTPUTDIR)

@@ -30,40 +30,33 @@
 import Recipe :: *;
 #include "RecipeMacros.h"
 
-import FIFO :: *;
-
 module top ();
 
-  FIFO#(Bit#(0)) delay <- mkFIFO1;
+  PulseWire done <- mkPulseWire;
 
-  Recipe r = Par
+  Recipe r = Seq
     $display("%0t -- A", $time),
     $display("%0t -- B", $time),
-    action
-      $display("%0t -- C (delay.deq)", $time);
-      delay.deq;
-    endaction,
+    $display("%0t -- C", $time),
     $display("%0t -- D", $time),
     $display("%0t -- E", $time),
-    action
-    $display("%0t -- F (delay.enq)", $time);
-      delay.enq(?);
-    endaction,
+    $display("%0t -- F", $time),
     $display("%0t -- G", $time),
-    $display("%0t -- H", $time)
+    $display("%0t -- H", $time),
+    done.send
   End;
 
-  RecipeFSM m <- compile(r);
+  RecipeFSM m <- mkRecipeFSM(r);
 
   // Start runing the recipe
   rule run;
     $display("starting at time %0t", $time);
     $display("------------------------------------------");
-    m.start();
+    m.trigger;
   endrule
 
   // On the recipe's last cyle, terminate simulation
-  rule endSim (m.isLastCycle);
+  rule endSim (done);
     $display("------------------------------------------");
     $display("finishing at time %0t", $time);
     $finish(0);

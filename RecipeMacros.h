@@ -33,6 +33,7 @@
 #define Seq rSeq(rBlock(
 #define Par rPar(rBlock(
 #define FastSeq rFastSeq(rBlock(
+#define Pipe rPipe(rBlock(
 #define If(a) rIfElse(a,toRecipe(
 #define Else ),toRecipe(
 #define When(a) rWhen(a,toRecipe(

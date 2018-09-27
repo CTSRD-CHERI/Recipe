@@ -32,31 +32,29 @@ import Recipe :: *;
 
 module top ();
 
+  PulseWire done <- mkPulseWire;
   Reg#(Bit#(8)) cnt <- mkReg(0);
 
-  Recipe r = While (cnt < 10)
-    Par
-      action
-        $display("%0t -- tick %0d", $time, cnt);
-        cnt <= cnt + 1;
-      endaction,
-      When (cnt[0] == 0)
-        $display("%0t -- Even tick", $time)
-      End
-    End
+  Recipe r = FastSeq While (cnt < 10)
+    action
+      $display("%0t -- While iteration %0d", $time, cnt);
+      cnt <= cnt + 1;
+    endaction
+  End,
+  done.send
   End;
 
-  RecipeFSM m <- compile(r);
+  RecipeFSM m <- mkRecipeFSM(r);
 
   // Start runing the recipe
   rule run;
     $display("starting at time %0t", $time);
     $display("------------------------------------------");
-    m.start();
+    m.trigger;
   endrule
 
   // On the recipe's last cyle, terminate simulation
-  rule endSim (m.isLastCycle);
+  rule endSim (done);
     $display("------------------------------------------");
     $display("finishing at time %0t", $time);
     $finish(0);
