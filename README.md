@@ -14,6 +14,7 @@ import FIFO :: *;
 
 module top ();
 
+  PulseWire done <- mkPulseWire;
   FIFO#(Bit#(0)) delay <- mkFIFO1;
 
   Recipe r = FastSeq
@@ -30,20 +31,21 @@ module top ();
       delay.deq;
     endaction,
     $display("%0t -- G", $time),
-    $display("%0t -- H", $time)
+    $display("%0t -- H", $time),
+    done.send
   End;
 
-  RecipeFSM m <- compile(r);
+  RecipeFSM m <- mkRecipeFSM(r);
 
   // Start runing the recipe
   rule run;
     $display("starting at time %0t", $time);
     $display("------------------------------------------");
-    m.start();
+    m.trigger;
   endrule
 
   // On the recipe's last cyle, terminate simulation
-  rule endSim (m.isLastCycle);
+  rule endSim (done);
     $display("------------------------------------------");
     $display("finishing at time %0t", $time);
     $finish(0);
@@ -76,7 +78,7 @@ The library sources are contained in [Recipe.bsv](Recipe.bsv). On top of the sta
 $ git submodule update --init --recursive
 ```
 
-Some Recipe examples are provided in the [examples](examples) directory. On a system with a working BSV setup, the examples can be built by typing `make`. Each example can be executed by running the generated script (`simExample*`) in the `output` directory.
+Some Recipe examples are provided in the [examples](examples) directory. On a system with a working BSV setup, the examples can be built by typing `make`. Each example can be executed by running the generated script (`simExample-*`) in the `output` directory.
 
 `Recipe` have the added benefit over the standard BSV `Stmt` type that termination can be detected with no latency, and also allow the user to access any desired internal signal in [Recipe.bsv](Recipe.bsv). Some additional more advanced Recipe constructors can be easily created, such as `rOneMatch` or `rMutExGroup`...
 
@@ -92,60 +94,53 @@ typedef union tagged {
 
 The BSV type constructors can be found in [Recipe.bsv](Recipe.bsv), but they are not meant to be directly used and are therefore not exported by the package. Instead, a `Recipe` is built using a combination of recipe constructors (described in the [Recipe constructors](#recipe-constructors) section).
 
-To build a state machine from a `Recipe`, the library defines a `compile` module with the following type signature:
+To build a state machine from a `Recipe`, the library defines a `mkRecipeFSM` module with the following type signature:
 
 ```bsv
-module [Module] compile#(Recipe r) (RecipeFSM);
+module [Module] mkRecipeFSM#(Recipe r) (RecipeFSM);
 ```
 
-A `Recipe` can be compiled using the `compile` module to get a `RecipeFSM` interface as follows:
+A `Recipe` can be compiled using the `mkRecipeFSM` module to get a `RecipeFSM` interface as follows:
 
 ```bsv
 Recipe r;
 // create Recipe ...
-RecipeFSM m <- compile(r);
+RecipeFSM m <- mkRecipeFSM(r);
 ```
 
 The `RecipeFSM` interface is defined as follows:
 
 ```bsv
 interface RecipeFSM;
-  method Bool canStart();
-  method Action start();
-  method Bool isLastCycle();
-  method Bool isDone();
-  method Action waitForDone();
+  method Bool   canTrigger;
+  method Action trigger;
 endinterface
 ```
 
 As their names suggest,
-* the `canStart` method returns `True` if the machine can be started
-* the `start` method starts the machine
-* the `isLastCycle` method returns `True` if the cycle is the last one before the machine is done
-* the `isDone` method returns `True` if the machine is done
-* the `waitForDone` method can be used to add an implicit condition to wait for the machine to be done
+* the `canTrigger` method returns `True` if the machine can be started
+* the `trigger` method starts the machine
 
-Additionally, the library provides the `compileRules` module with a type signature as follows:
+Additionally, the library provides the `mkRecipeFSMRules` module with a type signature as follows:
 
 ```bsv
-module [Module] compileRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
+module [Module] mkRecipeFSMRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
 ```
 
-As opposed to the `compile` module, the `compileRules` module will return the compiled `Rules` together with the `RecipeFSM` interface rather than adding the rules to the current module, giving the user the ability to schedule the generated rules
-according to their needs.
+As opposed to the `mkRecipeFSM` module, the `mkRecipeFSMRules` module will return the compiled `Rules`
+together with the `RecipeFSM` interface rather than adding the rules to the current module, giving the
+user the ability to schedule the generated rules according to their needs.
 
 The `compileMutuallyExclusive` module compiles a list of recipes, adds the rules for each recipe such
 that they are mutually exclusive, and returns a list of interfaces to the generated machines.
 
-```bsv
-module [Module] compileMutuallyExclusive#(List#(Recipe) rs) (List#(RecipeFSM));
-```
-
-Another way to control mutual exclusivity of the generated rules is to use the `rMutExGroup` recipe constructor.
+Mutual exclusivity of generated rule can be further controlled when declaring a `Recipe`. See the
+`rMutExGroup` recipe constructor for more details.
 
 ## A readable `Recipe`
 
-To help define `Recipe`s in a concise and readable way, macros are provided that simplify the calls to common recipe constructors:
+To help define `Recipe`s in a concise and readable way, macros are provided that simplify the calls to
+common recipe constructors:
 
 ```bsv
 Seq
@@ -165,15 +160,20 @@ rSeq(rBlock(
 ))
 ```
 
-Similarly, macros are defined for `Par`, `FastSeq`, `If` and `Else`, `When` and `While`. Those are defined in [RecipeMacros.h](RecipeMacros.h), which must be included in your BSV sources as follows:
+Similarly, macros are defined for `Par`, `FastSeq`, `Pipe`, `If` and `Else`, `When` and `While`.
+Those are defined in [RecipeMacros.h](RecipeMacros.h), which must be included in your BSV sources
+as follows:
 
 ```bsv
 #include "RecipeMacros.h"
 ```
 
-Additionally, the call to the BSV compiler should have the `-cpp` flag together with `-Xcpp -Ipath/to/Recipe` where `path/to/Recipe` is the path to the folder containing [RecipeMacros.h](RecipeMacros.h).
+Additionally, the call to the BSV compiler should have the `-cpp` flag together with `-Xcpp -Ipath/to/Recipe`
+where `path/to/Recipe` is the path to the folder containing [RecipeMacros.h](RecipeMacros.h).
 
-Alternatively, the [RecipeMacros.inc](RecipeMacros.inc) file defines the `` `Seq ``, `` `Par ``, `` `FastSeq ``, `` `If ``, `` `Else ``, `` `When `` and `` `While `` verilog preprocessor macros, and do not require any additional flag on the BSC compiler invocation.
+Alternatively, the [RecipeMacros.inc](RecipeMacros.inc) file defines the `` `Seq ``, `` `Par ``, `` `Pipe ``,
+`` `FastSeq ``, `` `If ``, `` `Else ``, `` `When `` and `` `While `` verilog preprocessor macros, and do not
+require any additional flag on the BSC compiler invocation.
 
 ## Recipe constructors
 
@@ -199,6 +199,12 @@ function Recipe rSeq(List#(Recipe) rs);
 
 ```bsv
 function Recipe rPar(List#(Recipe) rs);
+```
+
+* The `rPipe` recipe constructor is similar to the `rSeq` recipe constructor, but allows for pipelined execution of the different elements of the sequence of `Recipe`, where `rSeq` blocks until the sequence is fully traversed. The constructor expects a `List#(Recipe)` and should be used to wrap a call to `rBlock` which allows for arbitrary many `Recipe` to be placed in a list.
+
+```bsv
+function Recipe rPipe(List#(Recipe) rs);
 ```
 
 * The `rFastSeq` recipe constructor creates a sequence of `Recipe`s executed in order with no latency when possible. The constructor expects a `List#(Recipe)` and should be used to wrap a call to `rBlock` which allows for arbitrary many `Recipe` to be placed in a list.
