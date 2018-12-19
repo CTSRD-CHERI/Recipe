@@ -63,6 +63,8 @@ all: simExamples
 
 include .simExamples
 
+simExamples: $(SIMEXAMPLES)
+
 simExample-%: $(EXAMPLESDIR)/Example-%.bsv Recipe.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
 	$(BSC) -cpp -Xcpp -I. -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g top -u $<

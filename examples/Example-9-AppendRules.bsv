@@ -30,7 +30,7 @@ import Recipe :: *;
 import BlueBasics :: *;
 #include "RecipeMacros.h"
 
-#define HOWMANY 100
+#define HOWMANY 10
 
 module top ();
 
