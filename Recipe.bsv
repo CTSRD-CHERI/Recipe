@@ -58,6 +58,8 @@ export rIfElse;
 export rWhen;
 export rWhile;
 export rMutExGroup;
+export rAppendRules;
+export rMutexAppendRules;
 export rBlock;
 export RecipeBlock;
 export ToRecipe(..);
@@ -66,7 +68,8 @@ export RecipeFSMRsp(..);
 export mkRecipeFSM;
 export mkRecipeFSMRspCore;
 export mkRecipeFSMRsp;
-export mkRecipeFSMSlaveCore;
+export mkRecipeFSMSlaveCoreRules;
+export mkRecipeFSMSlaveRules;
 export mkRecipeFSMSlave;
 
 // Flow control
@@ -81,6 +84,7 @@ typedef union tagged {
   Tuple2#(Module#(FlowFF), List#(Recipe)) RPar;
   Tuple5#(Module#(FlowFF), List#(Bool), List#(Recipe), Module#(FlowFF), Recipe) ROneMatch;
   Tuple2#(String, Recipe) RMutexGroup;
+  Tuple3#(Recipe, Maybe#(String), Rules) RAppendRules;
 } Recipe;
 
 // Recipe block constructor (to wrap multiple recipes in a list, passed to RSeq, RPar etc..)
@@ -151,6 +155,9 @@ function Recipe rAllGuard(List#(Bool) gs, List#(Recipe) rs) = rPar(zipWith(rWhen
 function Recipe rOneMatch(List#(Bool) gs, List#(Recipe) rs, Recipe r) = ROneMatch(tuple5(mkBypassFIFOF, gs, rs, mkBypassFIFOF, r));
 // Add recipe to a mutex group
 function Recipe rMutExGroup(String s, Recipe r) = RMutexGroup(tuple2(s, r));
+// Import Rules into the current recipe
+function Recipe rAppendRules(Recipe r, Rules rs) = RAppendRules(tuple3(r, noMutEx, rs));
+function Recipe rMutexAppendRules(Recipe r, String str, Rules rs) = RAppendRules(tuple3(r, Valid(str), rs));
 
 // Inner Recipe types and utils
 ////////////////////////////////////////////////////////////////////////////////
@@ -193,14 +200,15 @@ interface RecipeFSMRsp#(type rsp_t);
   interface Source#(rsp_t) rsp;
 endinterface
 
-module [Module] mkRecipeFSMCore#(
+module [Module] mkRecipeFSMCoreRules#(
   Module#(FIFOF#(out_t)) mkFF,
   function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
-  (Tuple2#(RecipeFSM, Slave#(in_t, out_t)))
+  (Tuple3#(RecipeFSM, Rules, Slave#(in_t, out_t)))
   provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
   Reg#(in_t) arg_reg[2] <- mkCRegU(2);
   FIFOF#(out_t) ret_ff <- mkFF;
-  RecipeFSM recipe_fsm <- mkRecipeFSM(recipe_func(arg_reg[1], toSink(ret_ff)));
+  let core <- mkRecipeFSMRules(recipe_func(arg_reg[1], toSink(ret_ff)));
+  match {.recipe_rules, .recipe_fsm} = core;
   let s = interface Slave;
     interface sink = interface Sink;
       method canPut = recipe_fsm.canTrigger;
@@ -211,21 +219,31 @@ module [Module] mkRecipeFSMCore#(
     endinterface;
     interface source = toSource(ret_ff);
   endinterface;
-  return tuple2(recipe_fsm, s);
+  return tuple3(recipe_fsm, recipe_rules, s);
 endmodule
 
-module [Module] mkRecipeFSMSlaveCore#(
+module [Module] mkRecipeFSMSlaveCoreRules#(
   Module#(FIFOF#(out_t)) mkFF,
   function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
-  (Slave#(in_t, out_t)) provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
-  let core <- mkRecipeFSMCore(mkFF, recipe_func);
-  return tpl_2(core);
+  (Tuple2#(Rules, Slave#(in_t, out_t)))
+  provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
+  let core <- mkRecipeFSMCoreRules(mkFF, recipe_func);
+  match {._, .fsm_rules, .fsm_slv} = core;
+  return tuple2(fsm_rules, fsm_slv);
+endmodule
+module [Module] mkRecipeFSMSlaveRules#(
+  function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
+  (Tuple2#(Rules, Slave#(in_t, out_t)))
+  provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
+  let core <- mkRecipeFSMSlaveCoreRules(mkBypassFIFOF, recipe_func);
+  return core;
 endmodule
 module [Module] mkRecipeFSMSlave#(
   function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
   (Slave#(in_t, out_t)) provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
-  let core <- mkRecipeFSMSlaveCore(mkBypassFIFOF, recipe_func);
-  return core;
+  let core <- mkRecipeFSMSlaveRules(recipe_func);
+  addRules(tpl_1(core));
+  return tpl_2(core);
 endmodule
 
 module [Module] mkRecipeFSMRspCore#(
@@ -234,9 +252,10 @@ module [Module] mkRecipeFSMRspCore#(
   (RecipeFSMRsp#(rsp_t)) provisos (Bits#(rsp_t, rsp_sz));
   function Recipe drop1arg (Bit#(0) dummy, Sink#(rsp_t) outsnk) =
     recipe_func(outsnk);
-  let core <- mkRecipeFSMCore(mkFF, drop1arg);
+  let core <- mkRecipeFSMCoreRules(mkFF, drop1arg);
+  addRules(tpl_2(core));
   interface fsm = tpl_1(core);
-  interface rsp = tpl_2(core).source;
+  interface rsp = tpl_3(core).source;
 endmodule
 
 module [Module] mkRecipeFSMRsp#(
@@ -244,9 +263,10 @@ module [Module] mkRecipeFSMRsp#(
   (RecipeFSMRsp#(rsp_t)) provisos (Bits#(rsp_t, rsp_sz));
   function Recipe drop1arg (Bit#(0) dummy, Sink#(rsp_t) outsnk) =
     recipe_func(outsnk);
-  let core <- mkRecipeFSMCore(mkBypassFIFOF, drop1arg);
+  let core <- mkRecipeFSMCoreRules(mkBypassFIFOF, drop1arg);
+  addRules(tpl_2(core));
   interface fsm = tpl_1(core);
-  interface rsp = tpl_2(core).source;
+  interface rsp = tpl_3(core).source;
 endmodule
 
 // Recipe compiler front modules
@@ -530,8 +550,14 @@ module [Module] coreRecipeCompile#(Maybe#(String) mutex,
     // Tag recipe
     ////////////////////////////////////////////////////////////////////////////
     tagged RMutexGroup {.str, .recipe}: begin
-      let d <- coreRecipeCompile(Valid(str), recipe, FF(goFF), FF(doneFF));
+      let d <- comp(Valid(str), recipe, FF(goFF), FF(doneFF));
       coreRecipe.dict = d.dict;
+    end
+    // Import rules into a recipe
+    ////////////////////////////////////////////////////////////////////////////
+    tagged RAppendRules {.r, .mtx, .rs}: begin
+      let d <- comp(mutex, r, FF(goFF), FF(doneFF));
+      coreRecipe.dict = mconcat(list(d.dict, dict(mtx, rs)));
     end
   endcase
   // return newly crafted core recipe
