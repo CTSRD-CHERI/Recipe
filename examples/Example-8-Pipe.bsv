@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2018 Alexandre Joannou
+ * Copyright (c) 2018-2019 Alexandre Joannou
  * Copyright (c) 2018 Matthew Naylor
  * All rights reserved.
  *
@@ -73,16 +73,16 @@ module top ();
     End,
     FastSeq
     action
-      let x <- shifter.source.get;
+      let x <- get(shifter.source);
       $display("%0t -- res: %b", $time, x);
     endaction, action
-      let x <- shifter.source.get;
+      let x <- get(shifter.source);
       $display("%0t -- res: %b", $time, x);
     endaction, action
-      let x <- shifter.source.get;
+      let x <- get(shifter.source);
       $display("%0t -- res: %b", $time, x);
     endaction, action
-      let x <- shifter.source.get;
+      let x <- get(shifter.source);
       $display("%0t -- res: %b", $time, x);
     endaction,
     done.send

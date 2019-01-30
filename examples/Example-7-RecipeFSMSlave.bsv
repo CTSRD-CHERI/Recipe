@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2018 Alexandre Joannou
+ * Copyright (c) 2018-2019 Alexandre Joannou
  * Copyright (c) 2018 Matthew Naylor
  * All rights reserved.
  *
@@ -53,17 +53,17 @@ module top ();
   Recipe r = Seq
     adder.sink.put(tuple2(10, 15)),
     action
-      let x <- adder.source.get;
+      let x <- get(adder.source);
       $display("%0t -- a + b = %0d", $time, x);
     endaction,
     adder.sink.put(tuple2(856, 994)),
     action
-      let x <- adder.source.get;
+      let x <- get(adder.source);
       $display("%0t -- a + b = %0d", $time, x);
     endaction,
     adder.sink.put(tuple2(42, 3)),
     action
-      let x <- adder.source.get;
+      let x <- get(adder.source);
       $display("%0t -- a + b = %0d", $time, x);
     endaction,
     done.send

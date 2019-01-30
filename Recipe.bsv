@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2018 Alexandre Joannou
+ * Copyright (c) 2018-2019 Alexandre Joannou
  * Copyright (c) 2018 Matthew Naylor
  * All rights reserved.
  *
@@ -288,7 +288,7 @@ module [Module] mkRecipeFSMRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
     method trigger    = cr.go.put(?);
   endinterface;
   // get the Rules
-  Rules drain = rules rule drain; let _ <- cr.done.get; endrule endrules;
+  Rules drain = rules rule drain; cr.done.drop; endrule endrules;
   function isNormal(x) = !isValid(tpl_1(x));
   function  isMutEx(x) = isValid(tpl_1(x));
   `RULES_DICT normalDict = Dict::filter(isNormal, cr.dict);
@@ -369,13 +369,13 @@ module [Module] coreRecipeCompile#(Maybe#(String) mutex,
       `RULES_DICT afterIfRules = dict(noMutEx, rules
       rule finishIf(condFF.first);
         condFF.deq;
-        let _ <- ifRecipe.done.get;
+        ifRecipe.done.drop;
         doneFF.enq(?);
       endrule endrules);
       `RULES_DICT afterElseRules = dict(noMutEx, rules
       rule finishElse(!condFF.first);
         condFF.deq;
-        let _ <- elseRecipe.done.get;
+        elseRecipe.done.drop;
         doneFF.enq(?);
       endrule endrules);
       // join rules //
@@ -418,7 +418,7 @@ module [Module] coreRecipeCompile#(Maybe#(String) mutex,
         endrule
         rule endStepWhile;
           //$display("%0t -- endStepWhile", $time);
-          let _ <- innerRecipe.done.get;
+          innerRecipe.done.drop;
           activeStep[1] <= False;
         endrule
         rule endWhile (busy[1] && !condValid && !activeStep[2]);
@@ -459,13 +459,12 @@ module [Module] coreRecipeCompile#(Maybe#(String) mutex,
           method put(x) if (!busy[0]) = action busy[0] <= True; goFF.enq(?); endaction;
         endinterface;
         coreRecipe.done = interface Source;
-          method canGet = busy[1] && doneFF.notEmpty;
-          method   peek = doneFF.first;
-          method get if (busy[1]) = actionvalue
+          method canPeek = busy[1] && doneFF.notEmpty;
+          method peek    = doneFF.first;
+          method drop if (busy[1]) = action
             busy[1] <= False;
             doneFF.deq;
-            return doneFF.first;
-          endactionvalue;
+          endaction;
         endinterface;
       end
     end
@@ -484,7 +483,7 @@ module [Module] coreRecipeCompile#(Maybe#(String) mutex,
         joinActions(map(trigger, branches));
       endrule endrules);
       `RULES_DICT joinRule = dict(noMutEx, rules rule joinPar;
-        function drain(x) = action let _ <- x.done.get; endaction;
+        function drain(x) = action x.done.drop; endaction;
         joinActions(map(drain, branches));
         doneFF.enq(?);
       endrule endrules);
@@ -529,12 +528,12 @@ module [Module] coreRecipeCompile#(Maybe#(String) mutex,
       // rules to gather each branch //
       /////////////////////////////////
       function gatherRule(x) = rules
-        rule gatherOneMatch; let _ <- x.done.get; done.send; endrule
+        rule gatherOneMatch; x.done.drop; done.send; endrule
       endrules;
       Rules allGatherRules = fold(rJoinMutuallyExclusive,
                                   map(gatherRule, branches));
       Rules dfltGatherRules = rules
-        rule gatherDfltOneMatch; let _ <- dflt.done.get; done.send(); endrule
+        rule gatherDfltOneMatch; dflt.done.drop; done.send(); endrule
       endrules;
       `RULES_DICT gatherRules = dict(noMutEx, rJoinMutuallyExclusive(
                                      allGatherRules, dfltGatherRules));
