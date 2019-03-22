@@ -36,6 +36,7 @@ import FIFOF :: *;
 import GetPut :: *;
 import Connectable :: * ;
 import SpecialFIFOs :: *;
+import ModuleContext :: * ;
 
 // non standard packages
 import Monoid :: *;
@@ -159,7 +160,7 @@ function Recipe rMutExGroup(String s, Recipe r) = RMutexGroup(tuple2(s, r));
 function Recipe rAppendRules(Recipe r, Rules rs) = RAppendRules(tuple3(r, noMutEx, rs));
 function Recipe rMutexAppendRules(Recipe r, String str, Rules rs) = RAppendRules(tuple3(r, Valid(str), rs));
 
-// Inner Recipe types and utils
+// Inner Recipe types and helpers
 ////////////////////////////////////////////////////////////////////////////////
 `define RULES_DICT Dict#(Maybe#(String), Rules)
 
@@ -174,13 +175,23 @@ function `RULES_DICT getDict(CoreRecipe x) = x.dict;
 function FlowSnk       getGo(CoreRecipe x) = x.go;
 function FlowSrc     getDone(CoreRecipe x) = x.done;
 
+module [Module] adapt#(Module#(t) m) (Tuple2#(Empty, t));
+  t x <- m;
+  return tuple2(?, x);
+endmodule
+// to be able to use rebury in order not to impose the [Module] decoration,
+// you need to "adapt" your module such that it exposes an empty context...
+
 typedef union tagged {
   Module#(FlowFF) MkFF;
   FlowFF FF;
 } FlowFFArg;
-module [Module] craftFlowFF#(FlowFFArg ffarg)(FlowFF);
+module craftFlowFF#(FlowFFArg ffarg)(FlowFF);
   case (ffarg) matches
-    tagged MkFF .mkFF: begin FlowFF newff <- mkFF; return newff; end
+    tagged MkFF .mkFF: begin
+      FlowFF newff <- rebury(adapt(mkFF));
+      return newff;
+    end
     tagged FF .ff: return ff;
   endcase
 endmodule
@@ -200,13 +211,13 @@ interface RecipeFSMRsp#(type rsp_t);
   interface Source#(rsp_t) rsp;
 endinterface
 
-module [Module] mkRecipeFSMCoreRules#(
+module mkRecipeFSMCoreRules#(
   Module#(FIFOF#(out_t)) mkFF,
   function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
   (Tuple3#(RecipeFSM, Rules, Slave#(in_t, out_t)))
   provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
   Reg#(in_t) arg_reg[2] <- mkCRegU(2);
-  FIFOF#(out_t) ret_ff <- mkFF;
+  FIFOF#(out_t) ret_ff <- rebury(adapt(mkFF));
   let core <- mkRecipeFSMRules(recipe_func(arg_reg[1], toSink(ret_ff)));
   match {.recipe_rules, .recipe_fsm} = core;
   let s = interface Slave;
@@ -222,7 +233,7 @@ module [Module] mkRecipeFSMCoreRules#(
   return tuple3(recipe_fsm, recipe_rules, s);
 endmodule
 
-module [Module] mkRecipeFSMSlaveCoreRules#(
+module mkRecipeFSMSlaveCoreRules#(
   Module#(FIFOF#(out_t)) mkFF,
   function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
   (Tuple2#(Rules, Slave#(in_t, out_t)))
@@ -231,14 +242,14 @@ module [Module] mkRecipeFSMSlaveCoreRules#(
   match {._, .fsm_rules, .fsm_slv} = core;
   return tuple2(fsm_rules, fsm_slv);
 endmodule
-module [Module] mkRecipeFSMSlaveRules#(
+module mkRecipeFSMSlaveRules#(
   function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
   (Tuple2#(Rules, Slave#(in_t, out_t)))
   provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
   let core <- mkRecipeFSMSlaveCoreRules(mkBypassFIFOF, recipe_func);
   return core;
 endmodule
-module [Module] mkRecipeFSMSlave#(
+module mkRecipeFSMSlave#(
   function Recipe recipe_func (in_t args, Sink#(out_t) outsnk))
   (Slave#(in_t, out_t)) provisos (Bits#(in_t, in_sz), Bits#(out_t, out_sz));
   let core <- mkRecipeFSMSlaveRules(recipe_func);
@@ -246,7 +257,7 @@ module [Module] mkRecipeFSMSlave#(
   return tpl_2(core);
 endmodule
 
-module [Module] mkRecipeFSMRspCore#(
+module mkRecipeFSMRspCore#(
   Module#(FIFOF#(rsp_t)) mkFF,
   function Recipe recipe_func (Sink#(rsp_t) outsnk))
   (RecipeFSMRsp#(rsp_t)) provisos (Bits#(rsp_t, rsp_sz));
@@ -258,7 +269,7 @@ module [Module] mkRecipeFSMRspCore#(
   interface rsp = tpl_3(core).source;
 endmodule
 
-module [Module] mkRecipeFSMRsp#(
+module mkRecipeFSMRsp#(
   function Recipe recipe_func (Sink#(rsp_t) outsnk))
   (RecipeFSMRsp#(rsp_t)) provisos (Bits#(rsp_t, rsp_sz));
   function Recipe drop1arg (Bit#(0) dummy, Sink#(rsp_t) outsnk) =
@@ -273,14 +284,14 @@ endmodule
 ////////////////////////////////////////////////////////////////////////////////
 
 // compiles a recipe, adds the rules to the module and returns a RecipeFSM
-module [Module] mkRecipeFSM#(Recipe r) (RecipeFSM);
+module mkRecipeFSM#(Recipe r) (RecipeFSM);
   Tuple2#(Rules, RecipeFSM) x <- mkRecipeFSMRules(r);
   addRules(tpl_1(x));
   return tpl_2(x);
 endmodule
 
 // compiles a recipe, returns the generated rules and a RecipeFSM
-module [Module] mkRecipeFSMRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
+module mkRecipeFSMRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
   CoreRecipe cr <- mkCoreRecipe(r);
   // get the RecipeFSM interface
   RecipeFSM machine = interface RecipeFSM;
@@ -299,7 +310,7 @@ module [Module] mkRecipeFSMRules#(Recipe r) (Tuple2#(Rules, RecipeFSM));
 endmodule
 
 // compile a recipe, returns the core recipe
-module [Module] mkCoreRecipe#(Recipe r) (CoreRecipe);
+module mkCoreRecipe#(Recipe r) (CoreRecipe);
   let coreRecipe <- coreRecipeCompile(noMutEx, r,
                                       MkFF(mkBypassFIFOF),
                                       MkFF(mkBypassFIFOF));
@@ -308,11 +319,11 @@ endmodule
 
 // Core Recipe Compiler
 ////////////////////////////////////////////////////////////////////////////////
-module [Module] coreRecipeCompile#(Maybe#(String) mutex,
-                                   Recipe r,
-                                   FlowFFArg goArg,
-                                   FlowFFArg doneArg)
-                                   (CoreRecipe);
+module coreRecipeCompile#(Maybe#(String) mutex,
+                          Recipe r,
+                          FlowFFArg goArg,
+                          FlowFFArg doneArg)
+                          (CoreRecipe);
 
   // prepare comp short name, goFF, doneFF and coreRecipe
   //////////////////////////////////////////////////////////////////////////////
@@ -442,7 +453,7 @@ module [Module] coreRecipeCompile#(Maybe#(String) mutex,
       // go through the list and leave the last element in there
       `RULES_DICT seqRules = mempty;
       for (Integer i = 0; i < seqLength - 1; i = i + 1) begin
-        let newFF <- mkFF;
+        let newFF <- rebury(adapt(mkFF));
         CoreRecipe step <- comp(mutex, head(rList), FF(lastFF), FF(newFF));
         lastFF   = newFF;
         if (invert) seqRules = mergeWith(rulesJoin, step.dict, seqRules);
