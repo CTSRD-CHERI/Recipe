@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2018-2019 Alexandre Joannou
+ * Copyright (c) 2018-2021 Alexandre Joannou
  * Copyright (c) 2018 Matthew Naylor
  * All rights reserved.
  *
@@ -51,19 +51,19 @@ module top ();
   let adder <- mkRecipeFSMSlave(multiCycleAdder);
 
   Recipe r = Seq
-    adder.sink.put(tuple2(10, 15)),
+    adder.req.put(tuple2(10, 15)),
     action
-      let x <- get(adder.source);
+      let x <- get(adder.rsp);
       $display("%0t -- a + b = %0d", $time, x);
     endaction,
-    adder.sink.put(tuple2(856, 994)),
+    adder.req.put(tuple2(856, 994)),
     action
-      let x <- get(adder.source);
+      let x <- get(adder.rsp);
       $display("%0t -- a + b = %0d", $time, x);
     endaction,
-    adder.sink.put(tuple2(42, 3)),
+    adder.req.put(tuple2(42, 3)),
     action
-      let x <- get(adder.source);
+      let x <- get(adder.rsp);
       $display("%0t -- a + b = %0d", $time, x);
     endaction,
     done.send

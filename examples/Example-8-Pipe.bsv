@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2018-2019 Alexandre Joannou
+ * Copyright (c) 2018-2021 Alexandre Joannou
  * Copyright (c) 2018 Matthew Naylor
  * All rights reserved.
  *
@@ -66,23 +66,23 @@ module top ();
 
   Recipe r = Par
     FastSeq
-      shifter.sink.put(tuple3('b00000001, 5, 3)),
-      shifter.sink.put(tuple3('b00001000, 9, 3)),
-      shifter.sink.put(tuple3('b10000000, 0, 3)),
-      shifter.sink.put(tuple3('b00001000, 2, 2))
+      shifter.req.put(tuple3('b00000001, 5, 3)),
+      shifter.req.put(tuple3('b00001000, 9, 3)),
+      shifter.req.put(tuple3('b10000000, 0, 3)),
+      shifter.req.put(tuple3('b00001000, 2, 2))
     End,
     FastSeq
     action
-      let x <- get(shifter.source);
+      let x <- get(shifter.rsp);
       $display("%0t -- res: %b", $time, x);
     endaction, action
-      let x <- get(shifter.source);
+      let x <- get(shifter.rsp);
       $display("%0t -- res: %b", $time, x);
     endaction, action
-      let x <- get(shifter.source);
+      let x <- get(shifter.rsp);
       $display("%0t -- res: %b", $time, x);
     endaction, action
-      let x <- get(shifter.source);
+      let x <- get(shifter.rsp);
       $display("%0t -- res: %b", $time, x);
     endaction,
     done.send

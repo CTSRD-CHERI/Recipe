@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2018-2019 Alexandre Joannou
+ * Copyright (c) 2018-2021 Alexandre Joannou
  * All rights reserved.
  *
  * This software was developed by SRI International and the University of
@@ -53,9 +53,9 @@ module top ();
   match {.adder_rules, .adder} = tmp;
 
   Recipe r = Seq
-    adder.sink.put(tuple2(42, 3)),
+    adder.req.put(tuple2(42, 3)),
     action
-      let x <- get(adder.source);
+      let x <- get(adder.rsp);
       $display("%0t -- a + b = %0d", $time, x);
     endaction,
     done.send

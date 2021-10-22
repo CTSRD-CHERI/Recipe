@@ -1,5 +1,5 @@
 #-
-# Copyright (c) 2018 Alexandre Joannou
+# Copyright (c) 2018-2021 Alexandre Joannou
 # Copyright (c) 2018 Matthew Naylor
 # All rights reserved.
 #
@@ -50,11 +50,6 @@ BSCFLAGS += -show-range-conflict
 #BSCFLAGS += -show-rule-rel \* \*
 #BSCFLAGS += -steps-warn-interval n
 
-# Bluespec is not compatible with gcc > 4.9
-# This is actually problematic when using $test$plusargs
-CC = gcc-4.8
-CXX = g++-4.8
-
 EXAMPLESDIR = examples
 SIMEXAMPLESSRC = $(sort $(wildcard $(EXAMPLESDIR)/Example-*.bsv))
 SIMEXAMPLES = $(addprefix sim, $(notdir $(basename $(SIMEXAMPLESSRC))))
@@ -68,7 +63,7 @@ simExamples: $(SIMEXAMPLES)
 simExample-%: $(EXAMPLESDIR)/Example-%.bsv Recipe.bsv
 	mkdir -p $(OUTPUTDIR)/$@-info $(BDIR) $(SIMDIR)
 	$(BSC) -cpp -Xcpp -I. -info-dir $(OUTPUTDIR)/$@-info -simdir $(SIMDIR) $(BSCFLAGS) -sim -g top -u $<
-	CC=$(CC) CXX=$(CXX) $(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e top -o $(OUTPUTDIR)/$@
+	$(BSC) -simdir $(SIMDIR) $(BSCFLAGS) -sim -e top -o $(OUTPUTDIR)/$@
 
 .simExamples: $(SIMEXAMPLESSRC)
 	echo "simExamples: $^" > .simExamples

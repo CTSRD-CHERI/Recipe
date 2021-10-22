@@ -1,5 +1,5 @@
 /*-
- * Copyright (c) 2018-2019 Alexandre Joannou
+ * Copyright (c) 2018-2021 Alexandre Joannou
  * Copyright (c) 2018 Matthew Naylor
  * All rights reserved.
  *
@@ -221,14 +221,14 @@ module mkRecipeFSMCoreRules#(
   let core <- mkRecipeFSMRules(recipe_func(arg_reg[1], toSink(ret_ff)));
   match {.recipe_rules, .recipe_fsm} = core;
   let s = interface Slave;
-    interface sink = interface Sink;
+    interface req = interface Sink;
       method canPut = recipe_fsm.canTrigger;
       method put(x) if (recipe_fsm.canTrigger) = action
         arg_reg[0] <= x;
         recipe_fsm.trigger;
       endaction;
     endinterface;
-    interface source = toSource(ret_ff);
+    interface rsp = toSource(ret_ff);
   endinterface;
   return tuple3(recipe_fsm, recipe_rules, s);
 endmodule
@@ -266,7 +266,7 @@ module mkRecipeFSMRspCore#(
   let core <- mkRecipeFSMCoreRules(mkFF, drop1arg);
   addRules(tpl_2(core));
   interface fsm = tpl_1(core);
-  interface rsp = tpl_3(core).source;
+  interface rsp = tpl_3(core).rsp;
 endmodule
 
 module mkRecipeFSMRsp#(
@@ -277,7 +277,7 @@ module mkRecipeFSMRsp#(
   let core <- mkRecipeFSMCoreRules(mkBypassFIFOF, drop1arg);
   addRules(tpl_2(core));
   interface fsm = tpl_1(core);
-  interface rsp = tpl_3(core).source;
+  interface rsp = tpl_3(core).rsp;
 endmodule
 
 // Recipe compiler front modules
