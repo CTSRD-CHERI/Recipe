@@ -40,6 +40,7 @@ import ModuleContext :: * ;
 
 // non standard packages
 import Monoid :: *;
+import List :: *;
 import ListExtra :: *;
 import Dict :: *;
 import MasterSlave :: *;
